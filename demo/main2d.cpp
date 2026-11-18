@@ -34,7 +34,10 @@
 #include <cstring>
 #include <ctime>
 #include <filesystem>
+#include <atomic>
+#include <exception>
 #include <string>
+#include <thread>
 #include <vector>
 
 
@@ -1314,6 +1317,67 @@ static void smokeTick(int smokeFrame)
 }
 
 // ---------------------------------------------------------------------------------------
+// One ImGui frame with centered text, presented and waited on. Used only before the main
+// loop starts, while no other thread touches the queue.
+static void drawLoadingFrame(const char *text)
+{
+    vkWaitForFences(g_dev->device(), 1, &g_inFlight[g_frameIdx], VK_TRUE, UINT64_MAX);
+    uint32_t imageIndex = 0;
+    if (vkAcquireNextImageKHR(g_dev->device(), g_swapchain, UINT64_MAX, g_imageAvail[g_frameIdx], VK_NULL_HANDLE,
+                              &imageIndex) != VK_SUCCESS)
+        return;
+    vkResetFences(g_dev->device(), 1, &g_inFlight[g_frameIdx]);
+
+    VkCommandBuffer cmd = g_cmdBufs[g_frameIdx];
+    vkResetCommandBuffer(cmd, 0);
+    VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    VK_CHECK(vkBeginCommandBuffer(cmd, &bi));
+
+    VkClearValue clear{};
+    clear.color = {{0.10f, 0.11f, 0.13f, 1.0f}};
+    VkRenderPassBeginInfo rpbi{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    rpbi.renderPass = g_renderPass;
+    rpbi.framebuffer = g_framebuffers[imageIndex];
+    rpbi.renderArea = {{0, 0}, g_swapExtent};
+    rpbi.clearValueCount = 1;
+    rpbi.pClearValues = &clear;
+    vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
+
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplSDL2_NewFrame();
+    ImGui::NewFrame();
+    const ImVec2 size = ImGui::GetIO().DisplaySize;
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    ImGui::GetBackgroundDrawList()->AddText(ImVec2((size.x - ts.x) * 0.5f, (size.y - ts.y) * 0.5f),
+                                            IM_COL32(220, 225, 235, 255), text);
+    ImGui::Render();
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+
+    vkCmdEndRenderPass(cmd);
+    VK_CHECK(vkEndCommandBuffer(cmd));
+
+    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    si.waitSemaphoreCount = 1;
+    si.pWaitSemaphores = &g_imageAvail[g_frameIdx];
+    si.pWaitDstStageMask = &waitStage;
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &cmd;
+    si.signalSemaphoreCount = 1;
+    si.pSignalSemaphores = &g_renderDone[imageIndex];
+    VK_CHECK(vkQueueSubmit(g_dev->queue(), 1, &si, g_inFlight[g_frameIdx]));
+
+    VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+    pi.waitSemaphoreCount = 1;
+    pi.pWaitSemaphores = &g_renderDone[imageIndex];
+    pi.swapchainCount = 1;
+    pi.pSwapchains = &g_swapchain;
+    pi.pImageIndices = &imageIndex;
+    vkQueuePresentKHR(g_dev->queue(), &pi);
+    vkQueueWaitIdle(g_dev->queue());
+    g_frameIdx = (g_frameIdx + 1) % kFramesInFlight;
+}
+
 int main(int argc, char **argv)
 {
     int startScene = 0;
@@ -1394,7 +1458,7 @@ int main(int argc, char **argv)
             fprintf(stderr, "SDL_Vulkan_CreateSurface failed: %s\n", SDL_GetError());
         return surf;
     });
-    g_world.init();
+    g_world.initDevice(); // device + surface only; pipelines compile after the loading frame
     g_surface = g_dev->surface();
 
     g_swapFormat = chooseSurfaceFormat().format;
@@ -1404,8 +1468,6 @@ int main(int argc, char **argv)
         fprintf(stderr, "avbd2d_demo: initial swapchain creation failed (window minimised?)\n");
         return 1;
     }
-    g_renderer.init(*g_dev, g_renderPass);
-
     VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolInfo.queueFamilyIndex = g_dev->queueFamily();
@@ -1441,6 +1503,38 @@ int main(int argc, char **argv)
     vii.PipelineCache = g_dev->pipelineCache();
     vii.DescriptorPoolSize = 8;
     ImGui_ImplVulkan_Init(&vii);
+
+    // Pipeline compilation can take many seconds on a cold cache. Show a loading frame, then
+    // compile on a worker thread while this one pumps events so the OS does not flag the
+    // window as unresponsive.
+    drawLoadingFrame("Compiling shaders...");
+    {
+        std::atomic<bool> done{false};
+        std::exception_ptr err;
+        std::thread loader([&] {
+            try
+            {
+                g_world.init();
+                g_renderer.init(*g_dev, g_renderPass);
+            }
+            catch (...)
+            {
+                err = std::current_exception();
+            }
+            done = true;
+        });
+        while (!done)
+        {
+            SDL_Event le;
+            while (SDL_PollEvent(&le))
+            {
+            }
+            SDL_Delay(16);
+        }
+        loader.join();
+        if (err)
+            std::rethrow_exception(err);
+    }
 
     loadScene(startScene);
     refreshCaptureList();

@@ -234,6 +234,14 @@ void VkWorld2D::createPipelines()
     mk(m_compactMoved, events2d_spirv, events2d_spirv_words, "csCompactMoved2D");
 }
 
+void VkWorld2D::initDevice()
+{
+    if (m_dev.adopted() || m_dev.device())
+        return;
+    configureDevice();
+    m_dev.init();
+}
+
 void VkWorld2D::init()
 {
     if (m_init)
@@ -242,11 +250,7 @@ void VkWorld2D::init()
         m_smallLimit = std::atoi(e);
     try
     {
-        if (!m_dev.adopted())
-        {
-            configureDevice();
-            m_dev.init();
-        }
+        initDevice();
         m_layout.init(m_dev);
         createPipelines();
         m_csPl.init(m_dev, m_layout, constraints_spirv, constraints_spirv_words);

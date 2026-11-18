@@ -181,6 +181,9 @@ public:
     // To adopt a host-created device instead, call configureDevice() and device().adopt(...)
     // before init(); init() then skips creating one.
     void init();
+    // Creates just the device (what init() does first), so a presenting host can build its
+    // swapchain and show a loading screen before init() compiles the pipelines. Optional.
+    void initDevice();
     void configureDevice();
     void destroy();
     bool initialised() const { return m_init; }
