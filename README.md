@@ -1,6 +1,6 @@
 # avbd2d
 
-> **Status: experimental.** It works for my use cases and has not been battle-tested.
+> **Status: experimental, waiting for human review.** It works for my use cases and has not been battle-tested.
 > The API and behaviour may change.
 
 A 2D rigid-body physics solver that runs on the GPU (Vulkan compute), using Augmented Vertex
