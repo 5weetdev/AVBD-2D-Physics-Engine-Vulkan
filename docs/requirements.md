@@ -3,9 +3,11 @@
 **What you get:** everything to install, then the commands that build and run the demo yourself.
 Nothing is prebuilt: you compile the library and the demo from source.
 
-A GPU with a current driver that supports Vulkan 1.3. The build is tested on one machine (RTX 4070 SUPER, Windows 10 x64).
+A GPU with a current driver that supports Vulkan 1.3. The build is tested on Windows 10 x64 (RTX 4070 SUPER) and Fedora Linux 45 x86-64 (GCC, AMD Radeon 780M with Mesa RADV). macOS is untested.
 
 ## 1. Install
+
+### Windows
 
 | Tool | Why | Install |
 | :--- | :--- | :--- |
@@ -16,7 +18,17 @@ A GPU with a current driver that supports Vulkan 1.3. The build is tested on one
 | Python 3 | Embeds the compiled shaders | `winget install Python.Python.3.12` |
 | Vulkan SDK | Vulkan loader and `slangc` | Download from <https://vulkan.lunarg.com/sdk/home#windows>. The installer sets `VULKAN_SDK`; if CMake still cannot find it, pass `-DVulkan_ROOT=<SDK path>` |
 
-Open a new terminal afterwards so `PATH` picks everything up. Check:
+### Linux and macOS
+
+| Tool | Install |
+| :--- | :--- |
+| Git, CMake 3.20+, Ninja, Python 3, a C++17 compiler | Your package manager (`apt`, `dnf`, `brew`) |
+| Vulkan SDK | <https://vulkan.lunarg.com/sdk/home>. Source its `setup-env.sh` so `VULKAN_SDK` is set and `slangc` is on `PATH`. |
+| SDL2 build dependencies (demo only) | See SDL's `docs/README-linux.md` (X11 or Wayland headers) |
+
+Fedora package names: `gcc-c++ cmake ninja-build python3 vulkan-loader-devel vulkan-headers`, plus the X11/Wayland headers SDL needs (`libX11-devel libXext-devel libXrandr-devel libXcursor-devel libXfixes-devel libXi-devel libXScrnSaver-devel libxkbcommon-devel libXrender-devel`). The Windows-only interop calls are guarded by `_WIN32`.
+
+Open a new terminal afterwards so `PATH` picks everything up. Check (Windows):
 
 ```bat
 git --version && cmake --version && ninja --version && python --version && echo %VULKAN_SDK%
@@ -32,6 +44,8 @@ cd AVBD-2D-Physics-Engine-Vulkan
 Already cloned? Run `git submodule update --init`. SDL2 and Dear ImGui (demo only) live in `external/`.
 
 ## 3. Build
+
+On Linux and macOS: `./build.sh [release|debug] [clean] [run]`. It builds into `build/release` or `build/debug` and `run` starts the demo (`build/release/avbd2d_demo`, with `libavbd2d_solver.so` or `.dylib` beside it). The commands below are the Windows equivalent.
 
 Open **x64 Native Tools Command Prompt for VS 2022** (it has the compiler on `PATH`), then:
 

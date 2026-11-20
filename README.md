@@ -23,6 +23,14 @@ $o='-e','--accept-package-agreements','--accept-source-agreements'; $i={param($i
 Nothing is prebuilt: the demo is `build\avbd2d_demo.exe` and the library is `build\avbd2d_solver.dll`.
 Already have the tools, or something failed? See [requirements](docs/requirements.md) for the manual steps.
 
+On Linux or macOS, install the tools listed in [requirements](docs/requirements.md), then:
+
+```sh
+git clone --recurse-submodules https://github.com/5weetdev/AVBD-2D-Physics-Engine-Vulkan.git
+cd AVBD-2D-Physics-Engine-Vulkan
+./build.sh release run
+```
+
 ## How this was made
 
 This project was built with heavy AI assistance (Claude). I directed the design, tested the
@@ -104,11 +112,10 @@ Implemented in the code. Only the demo scenes and `avbd2d_demo --smoke` exercise
 | Limitation | Effect | Source |
 | :--- | :--- | :--- |
 | No restitution: `restitution` is stored and has no effect | No bouncing | `capabilities.restitution = 0` |
-| Joint damping ratios are accepted and ignored | Springs and welds oscillate more than in Box2D | `capabilities.joint_damping_ratio = 1` |
 | No determinism | Not bit-exact across runs, drivers or hardware; no lockstep or rollback | `capabilities.determinism = 0` |
 | Per-body `enableSleep` is ignored; explosion `maskBits` is not applied | Sleep is velocity-gated; explosions are not filtered by category | `capabilities.per_body_sleep_disable`, header |
 | Fixed cost of about 0.5 ms per step | A few hundred bodies is faster on the CPU; large worlds are where the GPU pays off (100k bodies step in about 4 ms) | measured once, see [when to use it](docs/when-to-use.md) |
-| Tested on one machine | Other GPUs, drivers and operating systems are untested | - |
+| Tested on Windows (NVIDIA) and Linux (AMD, Mesa RADV) | Other GPUs and drivers, and macOS, are untested | - |
 | Vulkan 1.3 | Needs int64, buffer device address, 64-bit atomics, scalar layout, synchronization2 | `avbd2d.h`, build |
 
 Full list and the reasoning: [limitations](docs/limitations.md).

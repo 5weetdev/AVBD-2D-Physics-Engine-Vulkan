@@ -13,7 +13,7 @@ if(MSVC)
     add_link_options($<$<CONFIG:Release>:/DEBUG> $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF>)
 endif()
 
-option(AVBD_BUILD_DEMO "Build the SDL2 + ImGui demo" ${WIN32})
+option(AVBD_BUILD_DEMO "Build the SDL2 + ImGui demo" ON)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 

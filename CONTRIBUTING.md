@@ -4,7 +4,7 @@ Thanks for helping. This page covers the minimum you need before opening a pull 
 
 ## Build
 
-Follow [docs/requirements.md](docs/requirements.md). Use a fresh `build\` directory when you change CMake files.
+Follow [docs/requirements.md](docs/requirements.md). Use a fresh build directory (`build\` on Windows, `./build.sh clean` on Linux and macOS) when you change CMake files.
 
 ## AI-assisted contributions
 
