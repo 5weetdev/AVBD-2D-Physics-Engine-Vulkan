@@ -43,7 +43,9 @@ struct JointAxis2
     float maxF = 0.0f;          // motor force (N) or torque (N m)
     float hertz = 0.0f;         // spring frequency; 0 = use `stiff`
     float stiff = 0.0f;         // ramped spring stiffness cap (solver units: angular is per arm^2)
-    float damp = 0.0f;          // damping ratio, accepted and ignored (TODO in the solver)
+    // Hard (lock) rows only: a per-joint penalty-cap multiplier. 0 or 1 = the historical cap, up to 64
+    // (set at runtime by avbd2d_revolute_joint_set_lock_scale, not authored in the scene).
+    float lockScale = 0.0f;
 };
 static_assert(sizeof(JointAxis2) == 48, "JointAxis2 drifted from types2d.slang");
 

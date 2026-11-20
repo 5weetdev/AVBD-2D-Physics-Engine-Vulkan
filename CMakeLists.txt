@@ -13,9 +13,9 @@ if(MSVC)
     add_link_options($<$<CONFIG:Release>:/DEBUG> $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF>)
 endif()
 
-if(NOT WIN32)
-    message(FATAL_ERROR "avbd2d v1 is only built and tested on Windows.")
-endif()
+option(AVBD_BUILD_DEMO "Build the SDL2 + ImGui demo" ${WIN32})
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 
 # ---------------------------------------------------------------------------
 # Toolchain: the Vulkan SDK (loader + slangc) and Python (SPIR-V embedding).
@@ -92,7 +92,7 @@ set(AVBD_GPU_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders_gpu_gen)
 file(MAKE_DIRECTORY ${AVBD_GPU_GEN_DIR})
 
 set(AVBD_GPU_SPIRV_HEADERS)
-foreach(module scan compact radix constraints)
+foreach(module scan compact radix sort_small constraints)
     avbd_compile_slang(${AVBD_SRC}/gpu/shaders ${AVBD_GPU_GEN_DIR} ${module} hdr)
     list(APPEND AVBD_GPU_SPIRV_HEADERS ${hdr})
 endforeach()
@@ -126,7 +126,15 @@ endforeach()
 
 add_library(avbd2d_vk STATIC
     src/world/vk_world2d.cpp
+    src/world/vk_world2d_upload.cpp
+    src/world/vk_world2d_step.cpp
+    src/world/vk_world2d_mutate.cpp
+    src/world/vk_world2d_live.cpp
+    src/world/vk_world2d_grab.cpp
+    src/world/vk_world2d_query.cpp
+    src/world/vk_world2d_debug.cpp
     src/query/query2d.cpp
+    src/scene/scene2d.cpp
     ${AVBD_2D_SPIRV_HEADERS})
 target_include_directories(avbd2d_vk PUBLIC
     ${AVBD_SRC}/core
@@ -140,8 +148,11 @@ set_target_properties(avbd2d_vk PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # ---------------------------------------------------------------------------
 # avbd2d_solver -- the C ABI (include/avbd2d/avbd2d.h), a shared library.
 # ---------------------------------------------------------------------------
-add_library(avbd2d_api OBJECT src/api/avbd2d_c_api.cpp)
-target_include_directories(avbd2d_api PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/avbd2d)
+add_library(avbd2d_api OBJECT
+    src/api/avbd2d_api.cpp src/api/avbd2d_world.cpp src/api/avbd2d_api_body.cpp src/api/avbd2d_api_shape.cpp
+    src/api/avbd2d_api_joint.cpp src/api/avbd2d_api_query.cpp src/api/avbd2d_api_interact.cpp
+    src/api/avbd2d_api_bulk.cpp src/api/avbd2d_api_debug.cpp)
+target_include_directories(avbd2d_api PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/avbd2d PRIVATE ${AVBD_SRC}/api)
 target_link_libraries(avbd2d_api PUBLIC avbd2d_vk)
 target_compile_definitions(avbd2d_api PRIVATE AVBD2D_BUILD_SHARED)
 set_target_properties(avbd2d_api PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -152,6 +163,7 @@ target_include_directories(avbd2d_solver PUBLIC
 target_link_libraries(avbd2d_solver PRIVATE avbd2d_vk)
 target_compile_definitions(avbd2d_solver INTERFACE AVBD2D_USE_SHARED)
 
+if(AVBD_BUILD_DEMO)
 # ---------------------------------------------------------------------------
 # Third-party (demo only): SDL2 and ImGui, vendored as submodules in external/.
 # ---------------------------------------------------------------------------
@@ -191,6 +203,8 @@ add_custom_command(TARGET avbd2d_demo POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:SDL2::SDL2> $<TARGET_FILE_DIR:avbd2d_demo>
     COMMENT "Copying SDL2.dll next to avbd2d_demo")
+
+endif()
 
 # ---------------------------------------------------------------------------
 # Install: the shared library, its import library and the one public header.

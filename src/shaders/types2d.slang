@@ -2,10 +2,10 @@
 // buffer a step touches plus the step's scalars, and Args2 is what a dispatch's push constant
 // points at (the World2 address and four per-dispatch words).
 //
-// The host mirrors both structs byte for byte in world/world2d_args.h. The layout
+// The host mirrors both structs byte for byte in world/vk_args2d.h. The layout
 // rule that keeps them in step under -fvk-use-scalar-layout: every pointer first (8 bytes
 // each), then 4-byte scalars in an even count, so no padding is ever implied. Change a
-// field here and in world2d_args.h in the same edit.
+// field here and in vk_args2d.h in the same edit.
 
 module types2d;
 
@@ -53,7 +53,7 @@ public struct JointAxis2
     public float maxF;
     public float hertz;
     public float stiff;
-    public float damp;
+    public float lockScale;
 };
 
 public static const uint SHAPE_FLAG_SENSOR = 1;
@@ -194,6 +194,8 @@ public struct World2
     public uint8_t *saveAwake; // awake flags at the start of the step (after patches and impulses)
     public vec2 *savePos;      // pose at the start of the step (x^t before integrate), see csIntegrateJointInit2D
     public float *saveAng;
+    public vec2 *subPos;       // pose at the start of the current solver substep (== initPos on substep 0)
+    public float *subAng;
 
     // Scalars (an even count of 4-byte words).
     public uint bodyCount;
@@ -240,6 +242,8 @@ public struct World2
     public float gravityY;
     public uint bPatchCount;
     public uint jPatchCount;
+    public float subDt;       // dt / substeps: the solve's step (inertia, velocity, joints, penalty scale)
+    public uint substeps;     // solver substeps per step (1 = one solve over dt)
 };
 
 public struct Args2
@@ -253,7 +257,7 @@ public struct Args2
 
 // Argument block of the batched query kernels (query2d.slang). The push constant points straight
 // at one of these (not at an Args2). Same layout rule as World2: pointers first, then an even
-// number of 4-byte scalars. Mirrored by QueryBatch2Gpu in world2d_args.h.
+// number of 4-byte scalars. Mirrored by QueryBatch2Gpu in vk_args2d.h.
 public struct QueryBatch2
 {
     public World2 *w;

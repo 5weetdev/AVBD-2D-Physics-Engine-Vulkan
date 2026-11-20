@@ -1,14 +1,3 @@
-/*
- * Copyright (c) 2026 Chris Giles
- *
- * Permission to use, copy, modify, distribute and sell this software
- * and its documentation for any purpose is hereby granted without fee,
- * provided that the above copyright notice appear in all copies.
- * Chris Giles makes no representations about the suitability
- * of this software for any purpose.
- * It is provided "as is" without express or implied warranty.
- */
-
 #include "vk_buffer.h"
 #include "vk_util.h"
 
@@ -113,6 +102,13 @@ void Buffer::resize(VkDeviceSize bytes, VkBufferUsageFlags extraUsage)
     bi.size = bytes;
     bi.usage = usage;
     bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    const std::vector<uint32_t> &families = m_dev->sharedFamilies();
+    if (m_concurrent && families.size() > 1)
+    {
+        bi.sharingMode = VK_SHARING_MODE_CONCURRENT;
+        bi.queueFamilyIndexCount = (uint32_t)families.size();
+        bi.pQueueFamilyIndices = families.data();
+    }
     VK_CHECK(vkCreateBuffer(m_dev->device(), &bi, nullptr, &m_buffer));
     Device::noteAlloc();
 

@@ -1,14 +1,3 @@
-/*
- * Copyright (c) 2026 Chris Giles
- *
- * Permission to use, copy, modify, distribute and sell this software
- * and its documentation for any purpose is hereby granted without fee,
- * provided that the above copyright notice appear in all copies.
- * Chris Giles makes no representations about the suitability
- * of this software for any purpose.
- * It is provided "as is" without express or implied warranty.
- */
-
 #include "vk_cmd.h"
 #include "vk_gate.h"
 #include "vk_util.h"
@@ -340,6 +329,22 @@ void CommandList::copy(const Buffer &src, Buffer &dst, VkDeviceSize bytes, VkDev
     profStamp("copy");
 }
 
+void CommandList::copyBatch(const CopyOp *ops, int count, Buffer &dst)
+{
+    if (count <= 0)
+        return;
+    m_ops.transfers++;
+    transferBarrier(m_cmd, true);
+    for (int i = 0; i < count; i++)
+        if (ops[i].bytes > 0)
+        {
+            VkBufferCopy region{ops[i].srcOffset, ops[i].dstOffset, ops[i].bytes};
+            vkCmdCopyBuffer(m_cmd, ops[i].src->handle(), dst.handle(), 1, &region);
+        }
+    transferBarrier(m_cmd, false);
+    profStamp("copyBatch");
+}
+
 void CommandList::copy(const MappedBuffer &src, Buffer &dst, VkDeviceSize bytes, VkDeviceSize srcOffset,
                        VkDeviceSize dstOffset)
 {
@@ -424,6 +429,16 @@ void CommandList::wait()
     waitInfo.pValues = &m_timelineValue;
     VK_CHECK(vkWaitSemaphores(m_dev->device(), &waitInfo, UINT64_MAX));
     profCollect();
+}
+
+bool CommandList::done() const
+{
+    if (!m_timeline || m_timelineValue == 0)
+        return true;
+    uint64_t v = 0;
+    if (vkGetSemaphoreCounterValue(m_dev->device(), m_timeline, &v) != VK_SUCCESS)
+        return false;
+    return v >= m_timelineValue;
 }
 
 double CommandList::timestampDeltaNs(uint32_t startIndex, uint32_t endIndex) const

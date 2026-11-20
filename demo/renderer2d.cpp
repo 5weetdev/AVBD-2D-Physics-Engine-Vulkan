@@ -29,17 +29,22 @@ void Renderer2D::init(avbdvk::Device &dev, VkRenderPass pass)
     VK_CHECK(vkCreatePipelineLayout(d, &plci, nullptr, &m_layout));
 
     VkVertexInputBindingDescription binding{0, sizeof(Instance2D), VK_VERTEX_INPUT_RATE_INSTANCE};
-    VkVertexInputAttributeDescription attrs[6]{};
+    VkVertexInputAttributeDescription attrs[11]{};
     attrs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, (uint32_t)offsetof(Instance2D, x)};
     attrs[1] = {1, 0, VK_FORMAT_R32G32_SFLOAT, (uint32_t)offsetof(Instance2D, hx)};
     attrs[2] = {2, 0, VK_FORMAT_R8G8B8A8_UNORM, (uint32_t)offsetof(Instance2D, rgba)};
     attrs[3] = {3, 0, VK_FORMAT_R32_UINT, (uint32_t)offsetof(Instance2D, shape)};
     attrs[4] = {4, 0, VK_FORMAT_R32_UINT, (uint32_t)offsetof(Instance2D, flags)};
-    attrs[5] = {5, 0, VK_FORMAT_R32G32B32A32_SFLOAT, (uint32_t)offsetof(Instance2D, ex)};
+    attrs[5] = {5, 0, VK_FORMAT_R32_SFLOAT, (uint32_t)offsetof(Instance2D, radius)};
+    attrs[6] = {6, 0, VK_FORMAT_R32_UINT, (uint32_t)offsetof(Instance2D, count)};
+    // The polygon's 8 local vertices as four float4s.
+    for (int i = 0; i < 4; i++)
+        attrs[7 + i] = {7u + (uint32_t)i, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+                        (uint32_t)(offsetof(Instance2D, v) + 16u * (size_t)i)};
     VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vi.vertexBindingDescriptionCount = 1;
     vi.pVertexBindingDescriptions = &binding;
-    vi.vertexAttributeDescriptionCount = 6;
+    vi.vertexAttributeDescriptionCount = 11;
     vi.pVertexAttributeDescriptions = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
@@ -59,6 +64,16 @@ void Renderer2D::init(avbdvk::Device &dev, VkRenderPass pass)
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
     VkPipelineColorBlendAttachmentState cba{};
+    // Alpha blending for the translucent soil-overlay cells; bodies draw at alpha 255, so they
+    // are unchanged. Draw order layers them: field cells first (under the bodies), then bodies,
+    // then lines and dots.
+    cba.blendEnable = VK_TRUE;
+    cba.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    cba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    cba.colorBlendOp = VK_BLEND_OP_ADD;
+    cba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    cba.alphaBlendOp = VK_BLEND_OP_ADD;
     cba.colorWriteMask =
         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};

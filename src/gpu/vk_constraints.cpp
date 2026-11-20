@@ -1,40 +1,32 @@
-/*
- * Copyright (c) 2026 Chris Giles
- *
- * Permission to use, copy, modify, distribute and sell this software
- * and its documentation for any purpose is hereby granted without fee,
- * provided that the above copyright notice appear in all copies.
- * Chris Giles makes no representations about the suitability
- * of this software for any purpose.
- * It is provided "as is" without express or implied warranty.
- */
-
 #include "vk_constraints.h"
 #include "vk_args.h"
 
 namespace avbdvk
 {
 
+// Every entry point of this module, named once; init and destroy walk the same table.
+static std::array<PipelineEntry, 8> entries(ConstraintsPipelines &p)
+{
+    return {{
+        {&p.resetColors, "csResetColors"},
+        {&p.emitManifold, "csEmitManifoldEntries"},
+        {&p.emitForce, "csEmitForceEntries"},
+        {&p.rows, "csConstraintsRows"},
+        {&p.jpRound, "csJpRound"},
+        {&p.colorKeys, "csColorKeys"},
+        {&p.colorRows, "csConstraintsColorRows"},
+        {&p.buildSmall, "csBuildSmall"},
+    }};
+}
+
 void ConstraintsPipelines::init(Device &dev, PipelineLayout &layout, const uint32_t *spirv, size_t spirvWords)
 {
-    resetColors.init(dev, layout, spirv, spirvWords, "csResetColors", "csResetColors");
-    emitManifold.init(dev, layout, spirv, spirvWords, "csEmitManifoldEntries", "csEmitManifoldEntries");
-    emitForce.init(dev, layout, spirv, spirvWords, "csEmitForceEntries", "csEmitForceEntries");
-    rows.init(dev, layout, spirv, spirvWords, "csConstraintsRows", "csConstraintsRows");
-    jpRound.init(dev, layout, spirv, spirvWords, "csJpRound", "csJpRound");
-    colorKeys.init(dev, layout, spirv, spirvWords, "csColorKeys", "csColorKeys");
-    colorRows.init(dev, layout, spirv, spirvWords, "csConstraintsColorRows", "csConstraintsColorRows");
+    initPipelines(dev, layout, spirv, spirvWords, entries(*this));
 }
 
 void ConstraintsPipelines::destroy()
 {
-    resetColors.destroy();
-    emitManifold.destroy();
-    emitForce.destroy();
-    rows.destroy();
-    jpRound.destroy();
-    colorKeys.destroy();
-    colorRows.destroy();
+    destroyPipelines(entries(*this));
 }
 
 // Device-side argument layout lives in vk_args.h (Cs*ArgsGpu), so every
@@ -43,8 +35,8 @@ void ConstraintsPipelines::destroy()
 void VkConstraints::init(Device &dev)
 {
     m_dev = &dev;
-    ring.init(dev, 1 << 20);
-    cmd.init(dev, 4);
+    m_ring.init(dev, 1 << 20);
+    m_cmd.init(dev, 4);
 
     rawKeys.init(dev);
     sortedKeys.init(dev);
@@ -69,8 +61,8 @@ void VkConstraints::destroy()
 {
     release();
     readout.destroy();
-    cmd.destroy();
-    ring.destroy();
+    m_cmd.destroy();
+    m_ring.destroy();
 }
 
 void VkConstraints::release()
@@ -135,13 +127,24 @@ void VkConstraints::build(ConstraintsPipelines &pl, PrimitivesPipelines &prim, R
     reserveRadix(radix, (uint32_t)maxEntries, 8, 4);
     reserveRadix(radix, (uint32_t)dynamicCount, 4, 4);
 
-    ring.reset();
-    cmd.begin();
-    record(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx, dynamicCount, dynamicCountAddr);
-    const int first = recordColoring(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx,
-                                     dynamicCount, 0, jpBound(), dynamicCountAddr);
-    cmd.submit();
-    cmd.wait();
+    m_ring.reset();
+    m_cmd.begin();
+    int first;
+    if (smallBuildEligible(dynamicCount))
+    {
+        first = recordSmall(m_cmd, m_ring, pl, bodies, manifolds, joints, springs, dynamicIdx, dynamicCount,
+                            dynamicCountAddr, jpBound());
+    }
+    else
+    {
+        smallSortStats().multiBuilds++;
+        record(m_cmd, m_ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx, dynamicCount,
+               dynamicCountAddr);
+        first = recordColoring(m_cmd, m_ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx,
+                               dynamicCount, 0, jpBound(), dynamicCountAddr);
+    }
+    m_cmd.submit();
+    m_cmd.wait();
     finish();
 
     // Rare path: the bound was too small (a scene switch, a sudden pile-up). JP resumes
@@ -151,12 +154,12 @@ void VkConstraints::build(ConstraintsPipelines &pl, PrimitivesPipelines &prim, R
     while (dynamicCount > 0 && rounds < 0 && recorded < kMaxJpRounds)
     {
         const int more = std::min(recorded, kMaxJpRounds - recorded);
-        ring.reset();
-        cmd.begin();
-        recorded += recordColoring(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx,
+        m_ring.reset();
+        m_cmd.begin();
+        recorded += recordColoring(m_cmd, m_ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx,
                                    dynamicCount, recorded, more, dynamicCountAddr);
-        cmd.submit();
-        cmd.wait();
+        m_cmd.submit();
+        m_cmd.wait();
         finishColoring(recorded);
     }
     if (rounds < 0)
@@ -188,8 +191,7 @@ void VkConstraints::record(CommandList &cmd, HostRingBuffer &ring, ConstraintsPi
     // ---- Reset colors, then emit every CSR entry (manifolds, joints, springs) into
     // one shared counter -- same shape as Constraints::build's first block. ----
     CsResetColorsArgsGpu rc{color.address(), dynamicIdx.address(), (uint32_t)dynamicCount, 0u, dynamicCountAddr};
-    VkDeviceAddress rcAddr = ring.write(&rc, sizeof(rc));
-    cmd.dispatch(pl.resetColors, (dynamicCount + block - 1) / block, rcAddr);
+    cmd.dispatchArgs(pl.resetColors, (dynamicCount + block - 1) / block, ring, rc);
 
     if (manifolds.slots > 0 || forceCount > 0)
     {
@@ -206,8 +208,7 @@ void VkConstraints::record(CommandList &cmd, HostRingBuffer &ring, ConstraintsPi
             em.isA = rawIsA.address();
             em.counter = counter.address();
             em.capacity = maxEntries;
-            VkDeviceAddress emAddr = ring.write(&em, sizeof(em));
-            cmd.dispatch(pl.emitManifold, ((uint32_t)manifolds.slots + block - 1) / block, emAddr);
+            cmd.dispatchArgs(pl.emitManifold, ((uint32_t)manifolds.slots + block - 1) / block, ring, em);
         }
         if (joints.count > 0)
         {
@@ -223,8 +224,7 @@ void VkConstraints::record(CommandList &cmd, HostRingBuffer &ring, ConstraintsPi
             ej.counter = counter.address();
             ej.capacity = maxEntries;
             ej.type = 1; // FORCE_JOINT
-            VkDeviceAddress ejAddr = ring.write(&ej, sizeof(ej));
-            cmd.dispatch(pl.emitForce, ((uint32_t)joints.count + block - 1) / block, ejAddr);
+            cmd.dispatchArgs(pl.emitForce, ((uint32_t)joints.count + block - 1) / block, ring, ej);
         }
         if (springs.count > 0)
         {
@@ -240,8 +240,7 @@ void VkConstraints::record(CommandList &cmd, HostRingBuffer &ring, ConstraintsPi
             es.counter = counter.address();
             es.capacity = maxEntries;
             es.type = 2; // FORCE_SPRING
-            VkDeviceAddress esAddr = ring.write(&es, sizeof(es));
-            cmd.dispatch(pl.emitForce, ((uint32_t)springs.count + block - 1) / block, esAddr);
+            cmd.dispatchArgs(pl.emitForce, ((uint32_t)springs.count + block - 1) / block, ring, es);
         }
         cmd.barrier();
 
@@ -254,8 +253,7 @@ void VkConstraints::record(CommandList &cmd, HostRingBuffer &ring, ConstraintsPi
 
         CsRowsArgsGpu ra{sortedKeys.address(), (uint32_t)maxEntries, 0u,
                          rowStart.address(),   rowEnd.address(),     counter.address()};
-        VkDeviceAddress raAddr = ring.write(&ra, sizeof(ra));
-        cmd.dispatch(pl.rows, ((uint32_t)maxEntries + block - 1) / block, raAddr);
+        cmd.dispatchArgs(pl.rows, ((uint32_t)maxEntries + block - 1) / block, ring, ra);
         cmd.barrier();
     }
     m_recorded = true;
@@ -337,16 +335,14 @@ int VkConstraints::recordColoring(CommandList &cmd, HostRingBuffer &ring, Constr
         jp.color = color.address();
         jp.remaining = remaining.address() + (VkDeviceAddress)(firstRound + r) * sizeof(uint32_t);
         jp.dynCountPtr = dynamicCountAddr;
-        VkDeviceAddress jpAddr = ring.write(&jp, sizeof(jp));
-        cmd.dispatch(pl.jpRound, (dynamicCount + block - 1) / block, jpAddr);
+        cmd.dispatchArgs(pl.jpRound, (dynamicCount + block - 1) / block, ring, jp);
         cmd.barrier();
     }
 
     // ---- Group dynamic bodies by color so each color is one contiguous dispatch. ----
     CsColorKeysArgsGpu ck{color.address(),    dynamicIdx.address(),  (uint32_t)dynamicCount, 0u,
                           colorKey.address(), bodyScratch.address(), dynamicCountAddr,       m_midTag};
-    VkDeviceAddress ckAddr = ring.write(&ck, sizeof(ck));
-    cmd.dispatch(pl.colorKeys, (dynamicCount + block - 1) / block, ckAddr);
+    cmd.dispatchArgs(pl.colorKeys, (dynamicCount + block - 1) / block, ring, ck);
     cmd.barrier();
 
     radixSortPairsU32(cmd, ring, prim, radix, colorKey, colorKeySorted, bodyScratch, bodyByColor,
@@ -360,12 +356,62 @@ int VkConstraints::recordColoring(CommandList &cmd, HostRingBuffer &ring, Constr
     VkDeviceAddress endAddr = colorRanges.address() + (VkDeviceAddress)(AVBD_MAX_COLORS_VK * sizeof(int32_t));
     CsColorRowsArgsGpu cr{colorKeySorted.address(), (uint32_t)dynamicCount,      0u, startAddr, endAddr,
                           dynamicCountAddr,         m_midTag ? nearEndAddr() : 0};
-    VkDeviceAddress crAddr = ring.write(&cr, sizeof(cr));
-    cmd.dispatch(pl.colorRows, (dynamicCount + block - 1) / block, crAddr);
+    cmd.dispatchArgs(pl.colorRows, (dynamicCount + block - 1) / block, ring, cr);
     cmd.barrier();
 
     m_recordedRounds = firstRound + count;
     return count;
+}
+
+bool VkConstraints::smallBuildEligible(int dynamicBound) const
+{
+    return smallWorldEnabled() && dynamicBound > 0 && dynamicBound <= kSmallBuildMaxDyn &&
+           maxBodies <= kSmallBuildMaxBodies;
+}
+
+int VkConstraints::recordSmall(CommandList &cmd, HostRingBuffer &ring, ConstraintsPipelines &pl,
+                               const VkConstraintsBodyRefs &bodies, const VkConstraintsManifoldRefs &manifolds,
+                               const VkConstraintsJointRefs &joints, const VkConstraintsSpringRefs &springs,
+                               const Buffer &dynamicIdx, int dynamicBound, VkDeviceAddress dynamicCountAddr,
+                               int blindRounds)
+{
+    smallSortStats().smallBuilds++;
+    CsBuildSmallArgsGpu a{};
+    a.mBodyA = manifolds.bodyA;
+    a.mBodyB = manifolds.bodyB;
+    a.mCount = manifolds.contactCount;
+    a.jBodyA = joints.bodyA;
+    a.jBodyB = joints.bodyB;
+    a.jBroken = joints.broken;
+    a.sBodyA = springs.bodyA;
+    a.sBodyB = springs.bodyB;
+    a.mass = bodies.mass;
+    a.awake = bodies.awake;
+    a.dyn = dynamicIdx.address();
+    a.keys = sortedKeys.address();
+    a.isA = sortedIsA.address();
+    a.rowStart = rowStart.address();
+    a.rowEnd = rowEnd.address();
+    a.color = color.address();
+    a.bodyByColor = bodyByColor.address();
+    a.ranges = colorRanges.address();
+    a.counter = counter.address();
+    a.remaining = remaining.address();
+    a.dynCountPtr = dynamicCountAddr;
+    a.midTag = m_midTag;
+    a.slots = (uint32_t)std::max(manifolds.slots, 0);
+    a.jointSlots = (uint32_t)std::max(joints.count, 0);
+    a.springSlots = (uint32_t)std::max(springs.count, 0);
+    a.bodyCount = (uint32_t)maxBodies;
+    a.dynCount = (uint32_t)dynamicBound;
+    a.capacity = maxEntries;
+    a.rounds = (uint32_t)blindRounds;
+    cmd.barrier(); // producers of the manifolds, bodies and dyn list (the multi path opens with a fill)
+    cmd.dispatchArgs(pl.buildSmall, 1, ring, a);
+    cmd.barrier();
+    m_recorded = true;
+    m_recordedRounds = blindRounds;
+    return blindRounds;
 }
 
 void VkConstraints::prepare(RadixScratch &radix, int dynamicBound)
@@ -380,9 +426,20 @@ int VkConstraints::recordBuild(CommandList &cmd, HostRingBuffer &ring, Constrain
                                const VkConstraintsSpringRefs &springs, const Buffer &dynamicIdx, int dynamicBound,
                                VkDeviceAddress dynamicCountAddr, int jpRounds)
 {
-    record(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx, dynamicBound, dynamicCountAddr);
-    const int recorded = recordColoring(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx,
-                                        dynamicBound, 0, jpRounds, dynamicCountAddr);
+    int recorded;
+    if (smallBuildEligible(dynamicBound))
+    {
+        recorded = recordSmall(cmd, ring, pl, bodies, manifolds, joints, springs, dynamicIdx, dynamicBound,
+                               dynamicCountAddr, jpRounds);
+    }
+    else
+    {
+        smallSortStats().multiBuilds++;
+        record(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx, dynamicBound,
+               dynamicCountAddr);
+        recorded = recordColoring(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx,
+                                  dynamicBound, 0, jpRounds, dynamicCountAddr);
+    }
     m_readoutRounds = recorded;
     cmd.barrier();
     // With no dynamic bodies record() returned early: the counter and ranges were still

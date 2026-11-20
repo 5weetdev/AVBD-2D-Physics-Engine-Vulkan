@@ -33,7 +33,7 @@
  *    event). A body with no shape is a real body (a dynamic one has mass 1 and inertia 0.5*0.25).
  *    A dynamic body whose shapes have density 0 gets that same default mass.
  *
- * Anything outside this surface (render-target interop, ...) returns AVBD2D_ERR_UNSUPPORTED.
+ * There is no graphics interop: the world renders nothing.
  */
 #ifndef AVBD2D_H
 #define AVBD2D_H
@@ -41,7 +41,7 @@
 #include <stdint.h>
 
 #define AVBD2D_ABI_VERSION_MAJOR 3
-#define AVBD2D_ABI_VERSION_MINOR 0
+#define AVBD2D_ABI_VERSION_MINOR 6
 
 #if defined(_WIN32)
 #if defined(AVBD2D_BUILD_SHARED)
@@ -67,7 +67,7 @@ extern "C"
         AVBD2D_OK = 0,
         AVBD2D_ERR_NULL_HANDLE = -1,   /* null, never created, or destroyed world handle */
         AVBD2D_ERR_INVALID_ARG = -2,   /* null pointer argument, bad value, an invalid or stale id */
-        AVBD2D_ERR_UNSUPPORTED = -3,   /* not part of the 2D solver */
+        AVBD2D_ERR_UNSUPPORTED = -3,   /* reserved: nothing returns it now */
         AVBD2D_ERR_NOT_COMMITTED = -4, /* unused since ABI 3 (there is no commit); kept for the numbering */
         AVBD2D_ERR_DEVICE = -5,        /* no usable Vulkan device */
         AVBD2D_ERR_CAPACITY = -6,      /* a hard capacity ceiling (or the memory budget) clamped the last step */
@@ -194,8 +194,8 @@ extern "C"
     /* A Vulkan device the host application created and owns. Handles are passed as opaque
  * values (VkInstance, VkPhysicalDevice, VkDevice) so this header needs no vulkan.h. The
  * device must be Vulkan 1.3 and be created with: shaderInt64, bufferDeviceAddress,
- * scalarBlockLayout, shaderInt8, timelineSemaphore, shaderBufferInt64Atomics,
- * shaderSharedInt64Atomics, hostQueryReset, synchronization2, and compute subgroup
+ * scalarBlockLayout, shaderInt8, timelineSemaphore,
+ * hostQueryReset, synchronization2, and compute subgroup
  * operations (basic, ballot, arithmetic). The queue must support compute. */
     typedef struct Avbd2dVulkanDevice
     {
@@ -262,7 +262,6 @@ extern "C"
     {
         uint32_t struct_size;        /* set to sizeof(Avbd2dCapabilities) before the call */
         int32_t restitution;         /* shape restitution is stored but has no effect */
-        int32_t joint_damping_ratio; /* dampingRatio is accepted and ignored */
         int32_t determinism;         /* no bit-exact determinism guarantee */
         int32_t continuous;          /* swept collision against static geometry (and bullets) */
         int32_t sensors;
@@ -456,7 +455,7 @@ extern "C"
         Avbd2dVec2 localAnchorA, localAnchorB;
         float referenceAngle;
         int32_t enableSpring;
-        float hertz, dampingRatio;
+        float hertz;
         int32_t enableLimit;
         float lowerAngle, upperAngle;
         int32_t enableMotor;
@@ -472,7 +471,6 @@ extern "C"
         Avbd2dVec2 localAnchorA, localAnchorB;
         float referenceAngle;
         float linearHertz, angularHertz; /* 0 = rigid */
-        float linearDampingRatio, angularDampingRatio;
         int32_t collideConnected;
         float breakForce;
         void *userData;
@@ -485,7 +483,7 @@ extern "C"
         Avbd2dVec2 localAxisA;
         float referenceAngle;
         int32_t enableSpring;
-        float hertz, dampingRatio;
+        float hertz;
         int32_t enableLimit;
         float lowerTranslation, upperTranslation;
         int32_t enableMotor;
@@ -501,7 +499,7 @@ extern "C"
         Avbd2dVec2 localAnchorA, localAnchorB;
         Avbd2dVec2 localAxisA;
         int32_t enableSpring;
-        float hertz, dampingRatio;
+        float hertz;
         int32_t enableLimit;
         float lowerTranslation, upperTranslation;
         int32_t enableMotor;
@@ -517,7 +515,7 @@ extern "C"
         Avbd2dVec2 localAnchorA, localAnchorB;
         float length;
         int32_t enableSpring;
-        float hertz, dampingRatio;
+        float hertz;
         int32_t enableLimit;
         float minLength, maxLength;
         int32_t enableMotor;
@@ -580,6 +578,36 @@ extern "C"
     AVBD2D_API Avbd2dResult avbd2d_revolute_joint_enable_motor(Avbd2dJointId id, int32_t flag);
     AVBD2D_API Avbd2dResult avbd2d_revolute_joint_set_motor_speed(Avbd2dJointId id, float speed);
     AVBD2D_API Avbd2dResult avbd2d_revolute_joint_set_max_motor_torque(Avbd2dJointId id, float torque);
+    /* Multiplies the penalty cap of the joint's hard position rows (all three axes): 1 = the historical
+ * cap, up to 16. Per joint only; global solver settings are untouched. Used by light chains (active
+ * ragdolls) whose anchors sag under load. Applied at the top of the next step, like the other setters.
+ * Added in ABI 3.5. */
+    AVBD2D_API Avbd2dResult avbd2d_revolute_joint_set_lock_scale(Avbd2dJointId id, float scale);
+
+    /* The drive mode of one revolute joint. */
+    typedef enum Avbd2dDriveMode
+    {
+        AVBD2D_DRIVE_OFF = 0,      /* the motor is off: the joint spins freely */
+        AVBD2D_DRIVE_VELOCITY = 1, /* drive the joint at `target` rad/s */
+        AVBD2D_DRIVE_TARGET = 2    /* servo the joint angle to `target` rad */
+    } Avbd2dDriveMode;
+
+    /* One revolute joint's drive (12 bytes). */
+    typedef struct Avbd2dRevoluteDrive
+    {
+        int32_t mode;    /* Avbd2dDriveMode */
+        float target;    /* VELOCITY: rad/s. TARGET: the joint angle in rad, relative to the joint's
+                      * referenceAngle. Unused (but still validated) in OFF mode. */
+        float maxTorque; /* >= 0, N m: the force clamp of the drive */
+    } Avbd2dRevoluteDrive;
+
+    /* Sets the drive of each revolute joint, one `drives[i]` per `ids[i]`. Takes the world once and
+ * validates every id and value first (all or nothing): each id must be a live revolute joint of
+ * this world (listed once), `mode` in range, `target` and `maxTorque` finite with `maxTorque >= 0`.
+ * Queues like the single setters (last write wins) and applies at the top of the next step; it
+ * never settles a step in flight. OFF clears enableMotor; VELOCITY and TARGET set it. */
+    AVBD2D_API Avbd2dResult avbd2d_revolute_joints_set_drives(Avbd2dWorld *world, const Avbd2dJointId *ids,
+                                                              const Avbd2dRevoluteDrive *drives, int32_t count);
 
     AVBD2D_API Avbd2dResult avbd2d_prismatic_joint_enable_limit(Avbd2dJointId id, int32_t flag);
     AVBD2D_API Avbd2dResult avbd2d_prismatic_joint_set_limits(Avbd2dJointId id, float lower, float upper);
@@ -773,9 +801,368 @@ extern "C"
     AVBD2D_API Avbd2dResult avbd2d_grab_begin(Avbd2dWorld *world, Avbd2dVec2 point, Avbd2dBodyId *out_body);
     AVBD2D_API Avbd2dResult avbd2d_grab_move(Avbd2dWorld *world, Avbd2dVec2 point);
     AVBD2D_API Avbd2dResult avbd2d_grab_end(Avbd2dWorld *world);
+    /* ABI 3.3: absolute target rotation (radians, counter-clockwise) of the held bodies about the grab point, relative
+ * to the orientation each had at grab begin. Eased in over a few steps. A no-op when nothing is held. */
+    AVBD2D_API Avbd2dResult avbd2d_grab_set_angle(Avbd2dWorld *world, float angle);
 
-    /* Always AVBD2D_ERR_UNSUPPORTED: there is no graphics interop in this build. */
-    AVBD2D_API Avbd2dResult avbd2d_register_render_target(Avbd2dWorld *world, void *native_handle);
+    /* ===== ABI 3.2: layout checks, bulk calls, the body state view, debug read-backs =============== */
+    /* Everything below is additive: no 3.1 struct or call changed. Bulk calls validate every element
+ * before they change anything, so an error leaves the world exactly as it was. */
+
+    /* ----- Layout check ------------------------------------------------------------------------- */
+    typedef enum Avbd2dStructKind
+    {
+        AVBD2D_STRUCT_VEC2 = 0,
+        AVBD2D_STRUCT_ROT,
+        AVBD2D_STRUCT_TRANSFORM,
+        AVBD2D_STRUCT_AABB,
+        AVBD2D_STRUCT_BODY_ID,
+        AVBD2D_STRUCT_SHAPE_ID,
+        AVBD2D_STRUCT_JOINT_ID,
+        AVBD2D_STRUCT_CHAIN_ID,
+        AVBD2D_STRUCT_WORLD_DEF,
+        AVBD2D_STRUCT_VULKAN_DEVICE,
+        AVBD2D_STRUCT_STATS,
+        AVBD2D_STRUCT_CAPABILITIES,
+        AVBD2D_STRUCT_BODY_DEF,
+        AVBD2D_STRUCT_FILTER,
+        AVBD2D_STRUCT_SHAPE_DEF,
+        AVBD2D_STRUCT_POLYGON,
+        AVBD2D_STRUCT_CIRCLE,
+        AVBD2D_STRUCT_CAPSULE,
+        AVBD2D_STRUCT_SEGMENT,
+        AVBD2D_STRUCT_CHAIN_DEF,
+        AVBD2D_STRUCT_REVOLUTE_JOINT_DEF,
+        AVBD2D_STRUCT_WELD_JOINT_DEF,
+        AVBD2D_STRUCT_PRISMATIC_JOINT_DEF,
+        AVBD2D_STRUCT_WHEEL_JOINT_DEF,
+        AVBD2D_STRUCT_DISTANCE_JOINT_DEF,
+        AVBD2D_STRUCT_MOTOR_JOINT_DEF,
+        AVBD2D_STRUCT_FILTER_JOINT_DEF,
+        AVBD2D_STRUCT_BODY_MOVE_EVENT,
+        AVBD2D_STRUCT_BODY_EVENTS,
+        AVBD2D_STRUCT_CONTACT_BEGIN_TOUCH_EVENT,
+        AVBD2D_STRUCT_CONTACT_END_TOUCH_EVENT,
+        AVBD2D_STRUCT_CONTACT_HIT_EVENT,
+        AVBD2D_STRUCT_CONTACT_EVENTS,
+        AVBD2D_STRUCT_SENSOR_BEGIN_TOUCH_EVENT,
+        AVBD2D_STRUCT_SENSOR_END_TOUCH_EVENT,
+        AVBD2D_STRUCT_SENSOR_EVENTS,
+        AVBD2D_STRUCT_JOINT_EVENT,
+        AVBD2D_STRUCT_JOINT_EVENTS,
+        AVBD2D_STRUCT_BODY_TRANSFORM,
+        AVBD2D_STRUCT_EXPLOSION_DEF,
+        AVBD2D_STRUCT_QUERY_FILTER,
+        AVBD2D_STRUCT_RAY_RESULT,
+        AVBD2D_STRUCT_SHAPE_PROXY,
+        AVBD2D_STRUCT_RAY_QUERY,
+        AVBD2D_STRUCT_BODY_VELOCITY,
+        AVBD2D_STRUCT_SHAPE_GEOMETRY,
+        AVBD2D_STRUCT_BODY_BATCH,
+        AVBD2D_STRUCT_BODY_WRENCH,
+        AVBD2D_STRUCT_BODY_STATE_VIEW,
+        AVBD2D_STRUCT_REMOVED_BODIES,
+        AVBD2D_STRUCT_CONTACT_DEBUG,
+        AVBD2D_STRUCT_JOINT_DEBUG,
+        AVBD2D_STRUCT_STEP_INFO,
+        AVBD2D_STRUCT_GRAB_OPTIONS,
+        AVBD2D_STRUCT_STEP_DIAGNOSTICS,
+        AVBD2D_STRUCT_COUNT
+    } Avbd2dStructKind;
+
+    /* sizeof the struct the library was built with, or -1 for an unknown kind. A binding compares
+ * these with its own layouts once, when it loads the library. */
+    AVBD2D_API int32_t avbd2d_struct_size(int32_t kind);
+
+    /* ----- Bulk create and destroy -------------------------------------------------------------- */
+    typedef struct Avbd2dBodyVelocity
+    {
+        Avbd2dVec2 linear;
+        float angular;
+        float reserved; /* keeps the record 16 bytes; ignored */
+    } Avbd2dBodyVelocity;
+
+    typedef enum Avbd2dShapeType
+    {
+        AVBD2D_SHAPE_CIRCLE = 0,  /* points[0] centre, radius */
+        AVBD2D_SHAPE_CAPSULE = 1, /* points[0], points[1] centres, radius */
+        AVBD2D_SHAPE_SEGMENT = 2, /* points[0], points[1] */
+        AVBD2D_SHAPE_POLYGON = 3, /* points[0 .. count) in any order (their convex hull is used), radius rounds it */
+        AVBD2D_SHAPE_BOX = 4      /* points[0] half extents, points[1] centre, points[2] rotation (c, s);
+                               * a zero points[2] means no rotation */
+    } Avbd2dShapeType;
+
+    /* One shape's geometry in the body frame, as a tagged record (80 bytes). */
+    typedef struct Avbd2dShapeGeometry
+    {
+        int32_t type;  /* Avbd2dShapeType */
+        int32_t count; /* polygon: 3 .. AVBD2D_MAX_POLYGON_VERTICES points; otherwise ignored */
+        float radius;
+        float reserved;
+        Avbd2dVec2 points[AVBD2D_MAX_POLYGON_VERTICES];
+    } Avbd2dShapeGeometry;
+
+    /* Many bodies with their shapes in one call. Every array is strided in BYTES; a stride of 0
+ * repeats element 0 for every body (or shape). Optional arrays may be null.
+ *   bodyDefs      required; per body
+ *   transforms    optional; per body, overrides bodyDef position and rotation
+ *   velocities    optional; per body, overrides bodyDef velocities
+ *   userData      optional; per body (void *), overrides bodyDef userData
+ *   shapeCounts   optional; per body (null = no shapes)
+ *   geometries    per SHAPE, in body order (body 0's shapes, then body 1's ...)
+ *   shapeDefs     per shape */
+    typedef struct Avbd2dBodyBatch
+    {
+        uint32_t struct_size; /* sizeof(Avbd2dBodyBatch) */
+        int32_t count;        /* bodies */
+        const Avbd2dBodyDef *bodyDefs;
+        const Avbd2dTransform *transforms;
+        const Avbd2dBodyVelocity *velocities;
+        void *const *userData;
+        const int32_t *shapeCounts;
+        const Avbd2dShapeGeometry *geometries;
+        const Avbd2dShapeDef *shapeDefs;
+        int32_t bodyDefStride, transformStride, velocityStride, userDataStride;
+        int32_t shapeCountStride, geometryStride, shapeDefStride;
+        int32_t reserved;
+    } Avbd2dBodyBatch;
+
+    /* Creates batch->count bodies; out_bodies has count entries. out_shapes (optional) receives the
+ * sum of shapeCounts entries, in batch order. Everything is validated first: on an error nothing
+ * is created. The bodies enter the simulation at the next step, as with avbd2d_create_body. */
+    AVBD2D_API Avbd2dResult avbd2d_create_bodies(Avbd2dWorld *world, const Avbd2dBodyBatch *batch,
+                                                 Avbd2dBodyId *out_bodies, Avbd2dShapeId *out_shapes);
+    /* Destroys bodies (with their shapes and joints). Every id must be valid, of this world, and
+ * appear once; otherwise nothing is destroyed. */
+    AVBD2D_API Avbd2dResult avbd2d_destroy_bodies(Avbd2dWorld *world, const Avbd2dBodyId *ids, int32_t count);
+
+    /* ----- Bulk setters ------------------------------------------------------------------------- */
+    /* Each takes the world once, validates every id and value first (all or nothing), then does what
+ * the single-body call does for each element. */
+    AVBD2D_API Avbd2dResult avbd2d_bodies_set_transforms(Avbd2dWorld *world, const Avbd2dBodyId *ids,
+                                                         const Avbd2dTransform *transforms, int32_t count);
+    AVBD2D_API Avbd2dResult avbd2d_bodies_set_velocities(Avbd2dWorld *world, const Avbd2dBodyId *ids,
+                                                         const Avbd2dBodyVelocity *velocities, int32_t count);
+
+    typedef enum Avbd2dWrenchFlags
+    {
+        AVBD2D_WRENCH_AT_POINT = 1, /* apply `linear` at `point` (else at the centre of mass) */
+        AVBD2D_WRENCH_WAKE = 2      /* wake the body */
+    } Avbd2dWrenchFlags;
+
+    /* A linear and an angular push on one body (32 bytes). */
+    typedef struct Avbd2dBodyWrench
+    {
+        Avbd2dVec2 linear; /* impulse (N s) or force (N) */
+        Avbd2dVec2 point;  /* world point, with AVBD2D_WRENCH_AT_POINT */
+        float angular;     /* angular impulse or torque */
+        uint32_t flags;    /* Avbd2dWrenchFlags */
+        uint32_t reserved[2];
+    } Avbd2dBodyWrench;
+
+    AVBD2D_API Avbd2dResult avbd2d_bodies_apply_impulses(Avbd2dWorld *world, const Avbd2dBodyId *ids,
+                                                         const Avbd2dBodyWrench *impulses, int32_t count);
+    /* Forces and torques act for the next step only (an impulse of force * dt). */
+    AVBD2D_API Avbd2dResult avbd2d_bodies_apply_forces(Avbd2dWorld *world, const Avbd2dBodyId *ids,
+                                                       const Avbd2dBodyWrench *forces, int32_t count);
+    AVBD2D_API Avbd2dResult avbd2d_bodies_set_awake(Avbd2dWorld *world, const Avbd2dBodyId *ids, int32_t count,
+                                                    int32_t awake);
+    AVBD2D_API Avbd2dResult avbd2d_bodies_set_enabled(Avbd2dWorld *world, const Avbd2dBodyId *ids, int32_t count,
+                                                      int32_t enabled);
+
+    /* ----- Body state view ---------------------------------------------------------------------- */
+    /* Per-slot arrays (slot = BodyId.index1 - 1) owned by the world, for zero-copy reads of every body.
+ * The library writes them only inside avbd2d_step_begin, avbd2d_step_end, avbd2d_step and the calls
+ * that settle a step in flight (queries, explosions, grab); the pointers and slotCount may change
+ * at those points, so fetch the view again after each of them. Between those points it holds the
+ * state of the last finished step plus the creates, destroys and teleports made before the step
+ * began. `version` grows by one every time the arrays are written. */
+    typedef enum Avbd2dBodyStateFlags
+    {
+        AVBD2D_BODY_ALIVE = 1u << 0, /* the slot holds a body */
+        AVBD2D_BODY_AWAKE = 1u << 1,
+        AVBD2D_BODY_ENABLED = 1u << 2,
+        AVBD2D_BODY_REMOVED = 1u << 3, /* the kill plane or the speed guard took it out of the simulation */
+        AVBD2D_BODY_PENDING = 1u << 4, /* created, not yet in a step */
+        AVBD2D_BODY_GRABBED = 1u << 5,
+        AVBD2D_BODY_TYPE_SHIFT = 8, /* bits 8..9: Avbd2dBodyType */
+        AVBD2D_BODY_TYPE_MASK = 3u << 8
+    } Avbd2dBodyStateFlags;
+
+    typedef struct Avbd2dBodyStateView
+    {
+        uint32_t struct_size; /* sizeof(Avbd2dBodyStateView) */
+        int32_t slotCount;
+        const Avbd2dTransform *transforms; /* body origin and rotation; zero in dead slots */
+        const Avbd2dBodyVelocity *velocities;
+        const uint32_t *flags;       /* Avbd2dBodyStateFlags; 0 = dead slot */
+        const uint16_t *generations; /* the slot's current generation (with index1 and world0, the id) */
+        uint64_t version;
+    } Avbd2dBodyStateView;
+
+    AVBD2D_API Avbd2dResult avbd2d_world_get_body_state_view(Avbd2dWorld *world, Avbd2dBodyStateView *out);
+
+    /* The bodies the kill plane or the speed guard removed in the last step. They stay valid (and
+ * flagged AVBD2D_BODY_REMOVED) until destroyed. Valid until the next avbd2d_step_end. */
+    typedef struct Avbd2dRemovedBodies
+    {
+        const Avbd2dBodyId *bodyIds;
+        int32_t count;
+    } Avbd2dRemovedBodies;
+
+    AVBD2D_API Avbd2dResult avbd2d_world_get_removed_bodies(Avbd2dWorld *world, Avbd2dRemovedBodies *out);
+
+    /* ----- Debug and diagnostics ---------------------------------------------------------------- */
+    typedef enum Avbd2dDebugFlags
+    {
+        AVBD2D_DEBUG_BODY_EXTRAS = 1u
+            << 0, /* every step also reads back graph colours (and full velocity and sleep state) */
+        AVBD2D_DEBUG_CONTACTS = 1u << 1 /* every step also snapshots the contact points */
+    } Avbd2dDebugFlags;
+
+    /* Applies from the next step. Contact snapshots cost device memory that is kept once allocated. */
+    AVBD2D_API Avbd2dResult avbd2d_world_set_debug_flags(Avbd2dWorld *world, uint32_t flags);
+    /* Turns contact, sensor and hit event collection on (default) or off. Move events and the state
+ * view do not depend on it. */
+    AVBD2D_API Avbd2dResult avbd2d_world_set_events_enabled(Avbd2dWorld *world, int32_t enabled);
+
+    /* Per-slot constraint graph colour of the last step (-1 for dead or never-stepped slots). Needs
+ * AVBD2D_DEBUG_BODY_EXTRAS; without it the colours are those of the last step that had it.
+ * Valid until the next avbd2d_step_end. */
+    AVBD2D_API Avbd2dResult avbd2d_world_get_body_colors(Avbd2dWorld *world, const int32_t **out_colors,
+                                                         int32_t *out_count);
+
+    /* One contact point of the last step (80 bytes). */
+    typedef struct Avbd2dContactDebug
+    {
+        Avbd2dVec2 point; /* midpoint of the anchors */
+        Avbd2dVec2 anchorA, anchorB;
+        Avbd2dVec2 normal;  /* from B to A */
+        float normalForce;  /* N */
+        float tangentForce; /* N */
+        float separation;   /* negative = overlap (m) */
+        float friction;
+        Avbd2dBodyId bodyIdA, bodyIdB;
+        Avbd2dVec2 penalty; /* penalty stiffness of the normal (x) and friction (y) rows */
+        int32_t sticking;   /* the friction row held inside the cone */
+        int32_t reserved;
+    } Avbd2dContactDebug;
+
+    /* The contact points of the last step. Needs AVBD2D_DEBUG_CONTACTS set before that step; else
+ * none. Settles a step in flight first. Valid until the next avbd2d_step_end. */
+    AVBD2D_API Avbd2dResult avbd2d_world_get_contact_debug(Avbd2dWorld *world, const Avbd2dContactDebug **out,
+                                                           int32_t *out_count);
+
+    typedef enum Avbd2dJointType
+    {
+        AVBD2D_REVOLUTE_JOINT = 0,
+        AVBD2D_WELD_JOINT = 1,
+        AVBD2D_PRISMATIC_JOINT = 2,
+        AVBD2D_WHEEL_JOINT = 3,
+        AVBD2D_DISTANCE_JOINT = 4,
+        AVBD2D_MOTOR_JOINT = 5,
+        AVBD2D_FILTER_JOINT = 6
+    } Avbd2dJointType;
+
+    AVBD2D_API Avbd2dResult avbd2d_joint_get_type(Avbd2dJointId id, int32_t *out);
+    AVBD2D_API Avbd2dResult avbd2d_joint_get_bodies(Avbd2dJointId id, Avbd2dBodyId *out_a, Avbd2dBodyId *out_b);
+
+    /* One live joint (40 bytes). */
+    typedef struct Avbd2dJointDebug
+    {
+        Avbd2dJointId jointId;
+        Avbd2dVec2 anchorA, anchorB; /* world space */
+        Avbd2dVec2 force;            /* constraint force on body B */
+        float torque;
+        int32_t type; /* Avbd2dJointType */
+    } Avbd2dJointDebug;
+
+    /* Every live joint, from the state of the last step. Settles a step in flight first. Valid until
+ * the next avbd2d_step_end. */
+    AVBD2D_API Avbd2dResult avbd2d_world_get_joint_debug(Avbd2dWorld *world, const Avbd2dJointDebug **out,
+                                                         int32_t *out_count);
+
+    /* Everything the last step measured (a superset of Avbd2dStats). */
+    typedef struct Avbd2dStepInfo
+    {
+        uint32_t struct_size; /* set to sizeof(Avbd2dStepInfo) before the call */
+        int32_t ok;           /* 0 when a hard capacity ceiling clamped the step */
+        int32_t truncated;    /* the step used clamped pair or contact buffers */
+        int32_t capacityReruns;
+        int32_t submits;
+        int32_t pairs;
+        int32_t contacts;
+        int32_t colors;
+        int32_t awake;
+        int32_t asleep;
+        int32_t removedThisStep;
+        int32_t removedTotal;
+        int32_t brokenJointsThisStep;
+        int32_t brokenJointsTotal;
+        int32_t eventsTruncatedMask; /* bit k: event kind k overflowed this step (its buffer grows) */
+        int32_t bodies;              /* live bodies */
+        int32_t statics;
+        int32_t dynamic;
+        int32_t joints; /* live joints */
+        int32_t pairCapacity;
+        int32_t contactCapacity;
+        int32_t bodyCapacity;
+        int32_t ccdClamped; /* bodies moved back to a time of impact */
+        int32_t ccdTruncated;
+        int32_t timingValid; /* 0: the device has no timestamps, the *Ms GPU fields are 0 */
+        float stepMs;        /* host wall clock */
+        float gpuMs;
+        float integrateMs, broadMs, narrowMs, buildMs, primalMs, dualMs, tailMs;
+        uint64_t deviceBytes;
+    } Avbd2dStepInfo;
+
+    AVBD2D_API Avbd2dResult avbd2d_get_step_info(Avbd2dWorld *world, Avbd2dStepInfo *out);
+
+    /* ----- Grab options ------------------------------------------------------------------------- */
+    typedef struct Avbd2dGrabOptions
+    {
+        uint32_t struct_size; /* sizeof(Avbd2dGrabOptions) */
+        float radius;         /* 0 = just the body under the point */
+        int32_t followJoints; /* a jointed body brings what its joints reach, within the radius */
+        float falloff;        /* exponent of the strength falloff towards the rim */
+        float minStrength;    /* strength at the rim, as a fraction of the centre's */
+        float
+            angularStrength; /* ABI 3.3: multiplier on the angular spring that follows avbd2d_grab_set_angle; 0 = angle free */
+    } Avbd2dGrabOptions;
+
+    AVBD2D_API Avbd2dGrabOptions avbd2d_default_grab_options(void);
+    /* avbd2d_grab_begin with options. out_count (optional) receives how many bodies are held. */
+    AVBD2D_API Avbd2dResult avbd2d_grab_begin_ex(Avbd2dWorld *world, Avbd2dVec2 point, const Avbd2dGrabOptions *options,
+                                                 Avbd2dBodyId *out_body, int32_t *out_count);
+
+    /* ===== ABI 3.6: solver substeps, step diagnostics, non-blocking poll ============================ */
+
+    /* Solver substeps per step (1..8, clamped). The step keeps its timeStep for collision, events, sleep and
+ * CCD; the solve (integrate, iterations, velocity) runs `substeps` times with timeStep / substeps,
+ * against the contacts found once at the step start. Takes effect from the next avbd2d_step_begin.
+ * Default 1 (bit-identical to ABI 3.5). */
+    AVBD2D_API Avbd2dResult avbd2d_world_set_substeps(Avbd2dWorld *world, int32_t substeps);
+    AVBD2D_API Avbd2dResult avbd2d_world_get_substeps(Avbd2dWorld *world, int32_t *out);
+
+    /* Early-warning measurements of the last completed step, for an adaptive substep controller. Lengths are
+ * relative to each shape's thickness (the smallest extent CCD uses), so 1.0 means a full thickness. */
+    typedef struct Avbd2dStepDiagnostics
+    {
+        uint32_t struct_size;      /* set to sizeof(Avbd2dStepDiagnostics) before the call */
+        int32_t substeps;          /* substeps the last step ran */
+        int32_t contacts;          /* contact points in the last step */
+        int32_t colors;            /* graph colours in the last step */
+        int32_t colorReruns;       /* passes the last step redid because the colour bound was exceeded */
+        float contactCflMax;       /* max over contact points of approachSpeed * timeStep / min thickness */
+        float penetrationRatioMax; /* max over contact points of penetration depth / min thickness (0 if none) */
+        float speedMax;            /* max linear speed of an awake dynamic body after the step */
+    } Avbd2dStepDiagnostics;       /* 32 bytes */
+
+    AVBD2D_API Avbd2dResult avbd2d_get_step_diagnostics(Avbd2dWorld *world, Avbd2dStepDiagnostics *out);
+
+    /* Non-blocking: *out_done = 1 when no step is in flight or the step in flight has finished on the GPU
+ * (avbd2d_step_end will not wait for the GPU), else 0. Never settles or submits anything. */
+    AVBD2D_API Avbd2dResult avbd2d_step_poll(Avbd2dWorld *world, int32_t *out_done);
 
 #ifdef __cplusplus
 }

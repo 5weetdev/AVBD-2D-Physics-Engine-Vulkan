@@ -1,14 +1,3 @@
-/*
- * Copyright (c) 2026 Chris Giles
- *
- * Permission to use, copy, modify, distribute and sell this software
- * and its documentation for any purpose is hereby granted without fee,
- * provided that the above copyright notice appear in all copies.
- * Chris Giles makes no representations about the suitability
- * of this software for any purpose.
- * It is provided "as is" without express or implied warranty.
- */
-
 #pragma once
 
 // GPU primitives: exclusive scan, stream compaction, and a stable LSD radix sort
@@ -27,6 +16,7 @@
 #include "vk_cmd.h"
 #include "vk_device.h"
 #include "vk_pipeline.h"
+#include "vk_small_world.h"
 
 #include <cstdint>
 #include <memory>
@@ -48,6 +38,8 @@ struct PrimitivesPipelines
     Pipeline histU64Keys, scatterU64Keys;
     Pipeline reduceOrAndU32, reduceOrAndU64;
     Pipeline finalizeSkipMaskU32, finalizeSkipMaskU64;
+    bool smallSortOk = false; // device shared memory fits sort_small.slang; the pipelines below exist only then
+    Pipeline sortSmallU32Pairs, sortSmallU64Pairs, sortSmallU64Keys; // one-workgroup bitonic
 
     void init(Device &dev, PipelineLayout &layout);
     void destroy();
@@ -173,6 +165,19 @@ struct RadixScratch
     }
 };
 
+// A sort whose capacity n is at most kSmallSortMaxKeys (vk_small_world.h) runs as ONE workgroup
+// (bitonic over (key, original index): the same order as the stable radix sort) when the device
+// has the shared memory for it (PrimitivesPipelines::smallSortOk). The live count is still read
+// on device, so there is no overflow case.
+
+// Sorts recorded since process start (diagnostic; printed by avbd_profile_vk --kernels).
+struct SmallSortStats
+{
+    uint64_t smallSorts = 0, radixSorts = 0;   // sorts recorded: one-workgroup vs radix
+    uint64_t smallBuilds = 0, multiBuilds = 0; // constraint builds recorded: one-workgroup vs multi-dispatch
+};
+SmallSortStats &smallSortStats();
+
 size_t radixSortTempBytes(uint32_t n);
 
 // Grows every scratch buffer a sort of up to n elements (keyBytes/valBytes wide; valBytes
@@ -183,7 +188,7 @@ size_t radixSortTempBytes(uint32_t n);
 // the sorts' own growth checks are no-ops.
 void reserveRadix(RadixScratch &scratch, uint32_t n, uint32_t keyBytes, uint32_t valBytes);
 
-// Device-count sorts (M4): with countAddr != 0, n is a capacity -- the grid, the scratch and
+// Device-count sorts: with countAddr != 0, n is a capacity -- the grid, the scratch and
 // the pass schedule are sized by it -- and the live count is read on device as
 // min(*countAddr, n). Recording no longer needs the count on the host; the result is
 // identical to a sort sized exactly. countAddr == 0 sorts exactly n elements.

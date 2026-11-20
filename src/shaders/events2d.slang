@@ -327,7 +327,6 @@ void csApplyBodyPatches2D(uint3 tid: SV_DispatchThreadID)
 static const uint JP_MOTOR = 1u;
 static const uint JP_LIMIT = 2u;
 static const uint JP_LIMIT_ON = 4u;
-static const uint JP_BREAK = 8u;
 static const uint JP_WAKE = 16u;
 
 [shader("compute")]
@@ -358,8 +357,6 @@ void csApplyJointPatches2D(uint3 tid: SV_DispatchThreadID)
         w->jAxis[j * 3 + axis].lo = asfloat(r[7]);
         w->jAxis[j * 3 + axis].hi = asfloat(r[8]);
     }
-    if ((f & JP_BREAK) != 0u)
-        w->jBroken[j] = (uint8_t)1;
     if ((f & JP_WAKE) != 0u)
     {
         int a = w->jA[j];

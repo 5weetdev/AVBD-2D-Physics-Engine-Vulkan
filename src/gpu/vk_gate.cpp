@@ -1,14 +1,3 @@
-/*
- * Copyright (c) 2026 Chris Giles
- *
- * Permission to use, copy, modify, distribute and sell this software
- * and its documentation for any purpose is hereby granted without fee,
- * provided that the above copyright notice appear in all copies.
- * Chris Giles makes no representations about the suitability
- * of this software for any purpose.
- * It is provided "as is" without express or implied warranty.
- */
-
 #include "vk_gate.h"
 
 #include "vk_args.h"
@@ -43,8 +32,7 @@ void DispatchGate::begin(CommandList &cmd, HostRingBuffer &ring, Pipeline &gateP
     a.dst = args.address();
     a.flag = flag;
     a.count = slots;
-    VkDeviceAddress addr = ring.write(&a, sizeof(a));
-    cmd.dispatch(gatePipeline, (uint32_t)((slots + 127) / 128), addr);
+    cmd.dispatchArgs(gatePipeline, (uint32_t)((slots + 127) / 128), ring, a);
     cmd.barrierIndirect();
 }
 

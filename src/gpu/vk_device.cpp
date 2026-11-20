@@ -24,6 +24,13 @@
 #include "vk_device.h"
 #include "vk_util.h"
 
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+#include <algorithm>
+#include <filesystem>
+#include <string>
+#include <vector>
 #include <cstdlib>
 #include <cstring>
 #include <atomic>
@@ -31,6 +38,15 @@
 
 namespace avbdvk
 {
+
+static unsigned long processId()
+{
+#ifdef _WIN32
+    return (unsigned long)GetCurrentProcessId();
+#else
+    return (unsigned long)getpid();
+#endif
+}
 
 static std::atomic<uint32_t> g_validationMessageCount{0};
 
@@ -159,8 +175,35 @@ void Device::adopt(VkInstance instance, VkPhysicalDevice physical, VkDevice devi
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(physical, &props);
     snprintf(m_deviceName, sizeof(m_deviceName), "%s", props.deviceName);
+    m_maxSharedMemory = props.limits.maxComputeSharedMemorySize;
     vkGetDeviceQueue(device, queueFamily, queueIndex, &m_computeQueue);
     createPoolAndCache();
+}
+
+// The driver recompiles every SPIR-V module on every launch unless the application keeps a
+// pipeline cache: csCcdToi alone is ~13 s on an RTX 4070 SUPER, ~22 s for the whole kernel set,
+// which left the demo's window unresponsive for that long. The cache is a file per device
+// (vendor, device id, driver version in the name; the driver also rejects a stale blob by its
+// own header), at AVBD_PIPELINE_CACHE_DIR, %LOCALAPPDATA%/avbd3d, $XDG_CACHE_HOME/avbd3d or ~/.cache/avbd3d. Best effort throughout.
+static std::string pipelineCachePath(VkPhysicalDevice pd)
+{
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(pd, &props);
+    std::string dir;
+    if (const char *e = getenv("AVBD_PIPELINE_CACHE_DIR"))
+        dir = e;
+    else if (const char *la = getenv("LOCALAPPDATA"))
+        dir = std::string(la) + "/avbd3d";
+    else if (const char *xdg = getenv("XDG_CACHE_HOME"))
+        dir = std::string(xdg) + "/avbd3d";
+    else if (const char *home = getenv("HOME"))
+        dir = std::string(home) + "/.cache/avbd3d";
+    if (dir.empty() || dir == "off")
+        return {};
+    char name[96];
+    snprintf(name, sizeof(name), "/pipeline_cache_%04x_%04x_%08x.bin", props.vendorID, props.deviceID,
+             props.driverVersion);
+    return dir + name;
 }
 
 void Device::createPoolAndCache()
@@ -170,8 +213,57 @@ void Device::createPoolAndCache()
     poolInfo.queueFamilyIndex = m_computeQueueFamily;
     VK_CHECK(vkCreateCommandPool(m_device, &poolInfo, nullptr, &m_commandPool));
 
+    m_pipelineCachePath = pipelineCachePath(m_physicalDevice);
+    std::vector<char> blob;
+    if (!m_pipelineCachePath.empty())
+    {
+        if (FILE *f = fopen(m_pipelineCachePath.c_str(), "rb"))
+        {
+            fseek(f, 0, SEEK_END);
+            const long n = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            if (n > 0)
+            {
+                blob.resize((size_t)n);
+                if (fread(blob.data(), 1, blob.size(), f) != blob.size())
+                    blob.clear();
+            }
+            fclose(f);
+        }
+    }
     VkPipelineCacheCreateInfo cacheInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+    cacheInfo.initialDataSize = blob.size();
+    cacheInfo.pInitialData = blob.empty() ? nullptr : blob.data();
     VK_CHECK(vkCreatePipelineCache(m_device, &cacheInfo, nullptr, &m_pipelineCache));
+}
+
+void Device::savePipelineCache()
+{
+    if (!m_pipelineCache || m_pipelineCachePath.empty())
+        return;
+    size_t n = 0;
+    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &n, nullptr) != VK_SUCCESS || n == 0)
+        return;
+    std::vector<char> blob(n);
+    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &n, blob.data()) != VK_SUCCESS)
+        return;
+    const size_t slash = m_pipelineCachePath.find_last_of("/\\");
+    if (slash != std::string::npos)
+        std::filesystem::create_directories(m_pipelineCachePath.substr(0, slash));
+    // Write beside and rename, so a concurrent process (ctest runs several) never reads half a file.
+    char tmp[16];
+    snprintf(tmp, sizeof(tmp), ".%u.tmp", (unsigned)processId());
+    const std::string tmpPath = m_pipelineCachePath + tmp;
+    if (FILE *f = fopen(tmpPath.c_str(), "wb"))
+    {
+        const bool ok = fwrite(blob.data(), 1, n, f) == n;
+        fclose(f);
+        std::error_code ec;
+        if (ok)
+            std::filesystem::rename(tmpPath, m_pipelineCachePath, ec);
+        if (!ok || ec)
+            std::filesystem::remove(tmpPath, ec);
+    }
 }
 
 void Device::shutdown()
@@ -182,6 +274,7 @@ void Device::shutdown()
         if (m_device)
         {
             vkDeviceWaitIdle(m_device);
+            savePipelineCache();
             if (m_pipelineCache)
                 vkDestroyPipelineCache(m_device, m_pipelineCache, nullptr);
             if (m_commandPool)
@@ -193,18 +286,25 @@ void Device::shutdown()
         m_instance = VK_NULL_HANDLE;
         m_physicalDevice = VK_NULL_HANDLE;
         m_computeQueue = VK_NULL_HANDLE;
+        m_sideQueue = m_copyQueue = VK_NULL_HANDLE;
+        m_sideFamily = m_copyFamily = ~0u;
+        m_sharedFamilies.clear();
         m_adopted = false;
         return;
     }
     if (m_device)
     {
         vkDeviceWaitIdle(m_device);
+        savePipelineCache();
         if (m_pipelineCache)
             vkDestroyPipelineCache(m_device, m_pipelineCache, nullptr);
         if (m_commandPool)
             vkDestroyCommandPool(m_device, m_commandPool, nullptr);
         vkDestroyDevice(m_device, nullptr);
         m_device = VK_NULL_HANDLE;
+        m_sideQueue = m_copyQueue = VK_NULL_HANDLE;
+        m_sideFamily = m_copyFamily = ~0u;
+        m_sharedFamilies.clear();
         m_pipelineCache = VK_NULL_HANDLE;
         m_commandPool = VK_NULL_HANDLE;
     }
@@ -427,6 +527,7 @@ void Device::pickPhysicalDevice()
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(m_physicalDevice, &props);
     snprintf(m_deviceName, sizeof(m_deviceName), "%s", props.deviceName);
+    m_maxSharedMemory = props.limits.maxComputeSharedMemorySize;
     if (m_verbose)
         fprintf(stderr, "[avbd_vk] using device: %s (subgroup size %u%s)\n", props.deviceName, m_subgroupSize,
                 m_pinnedSubgroup ? ", pinned to 32" : "");
@@ -496,15 +597,18 @@ bool Device::evaluateDevice(VkPhysicalDevice d, DeviceInfo &info, std::string &w
     need(f12.scalarBlockLayout, "scalarBlockLayout");
     need(f12.shaderInt8, "shaderInt8");
     need(f12.timelineSemaphore, "timelineSemaphore");
-    need(f12.shaderBufferInt64Atomics, "shaderBufferInt64Atomics");
-    need(f12.shaderSharedInt64Atomics, "shaderSharedInt64Atomics");
     need(f12.hostQueryReset, "hostQueryReset");
     need(f13.synchronization2, "synchronization2");
     if (m_requireAtomicFloat)
         need(info.atomicFloat, "VK_EXT_shader_atomic_float (shaderBufferFloat32AtomicAdd)");
+#ifdef _WIN32
     if (m_externalWin32)
         need(has(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME) && has(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME),
              "VK_KHR_external_memory_win32 / VK_KHR_external_semaphore_win32");
+#else
+    if (m_externalWin32)
+        need(false, "VK_KHR_external_memory_win32 (Windows only)");
+#endif
     if (m_wantPresent)
         need(has(VK_KHR_SWAPCHAIN_EXTENSION_NAME), "VK_KHR_swapchain");
 
@@ -576,11 +680,49 @@ void Device::createLogicalDevice()
     }
     m_timestampValidBits = fams[m_computeQueueFamily].timestampValidBits;
 
-    float priority = 1.0f;
+    // Side queues: a second compute queue (another family, preferably without GRAPHICS, else
+    // a second queue of the main family) and a transfer-only family for DMA copies.
+    uint32_t sideIndex = 0;
+    for (uint32_t i = 0; i < famCount; i++)
+    {
+        if (i == m_computeQueueFamily || !(fams[i].queueFlags & VK_QUEUE_COMPUTE_BIT))
+            continue;
+        if (m_sideFamily == ~0u || !(fams[i].queueFlags & VK_QUEUE_GRAPHICS_BIT))
+            m_sideFamily = i;
+    }
+    if (m_sideFamily == ~0u && fams[m_computeQueueFamily].queueCount >= 2)
+    {
+        m_sideFamily = m_computeQueueFamily;
+        sideIndex = 1;
+    }
+    for (uint32_t i = 0; i < famCount; i++)
+        if (i != m_computeQueueFamily && i != m_sideFamily && (fams[i].queueFlags & VK_QUEUE_TRANSFER_BIT) &&
+            !(fams[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)))
+        {
+            m_copyFamily = i;
+            break;
+        }
+
+    // The main queue keeps the top priority; the side queues serve small latency-bound reads.
+    const float priorities[2] = {1.0f, 1.0f};
+    std::vector<VkDeviceQueueCreateInfo> qcis;
     VkDeviceQueueCreateInfo qci{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     qci.queueFamilyIndex = m_computeQueueFamily;
-    qci.queueCount = 1;
-    qci.pQueuePriorities = &priority;
+    qci.queueCount = sideIndex == 1 ? 2 : 1;
+    qci.pQueuePriorities = priorities;
+    qcis.push_back(qci);
+    if (m_sideFamily != ~0u && sideIndex == 0)
+    {
+        qci.queueFamilyIndex = m_sideFamily;
+        qci.queueCount = 1;
+        qcis.push_back(qci);
+    }
+    if (m_copyFamily != ~0u)
+    {
+        qci.queueFamilyIndex = m_copyFamily;
+        qci.queueCount = 1;
+        qcis.push_back(qci);
+    }
 
     // Feature chain: Vulkan 1.2 (BDA, timeline semaphores, shaderInt64, atomics) +
     // Vulkan 1.3 (sync2, though we don't strictly require it yet) + subgroup size
@@ -589,15 +731,14 @@ void Device::createLogicalDevice()
     f12.bufferDeviceAddress = VK_TRUE;
     f12.shaderInt8 = VK_TRUE;
     f12.timelineSemaphore = VK_TRUE;
-    f12.shaderBufferInt64Atomics = VK_TRUE;
-    f12.shaderSharedInt64Atomics = VK_TRUE;
     f12.hostQueryReset = VK_TRUE;
     // slangc's -fvk-use-scalar-layout emits scalar (std430-relaxed) offsets for ordinary
     // SSBO blocks, but buffer_reference (PhysicalStorageBuffer) blocks -- e.g.
     // WriteInstancesArgs.out's BodyInstance* in render.slang -- follow the SPIR-V
     // relaxed-block-layout rule instead, which BodyInstance's {vec3 pos; vec4 rot; ...}
     // fails (rot's vec4 at offset 12 straddles the 16-byte boundary). BodyInstance's
-    // 44-byte layout is a fixed ABI shared with the host, so it cannot be padded/reordered to fit
+    // 44-byte layout is a fixed ABI (matches BodyInstance and
+    // Unity's generated struct byte-for-byte), so it cannot be padded/reordered to fit
     // relaxed rules; enabling the core (1.2) scalarBlockLayout feature makes that same
     // straddling layout legal for buffer_reference blocks too, which is what the
     // validator's own message above suggests ("may be allowed if you enable the
@@ -639,6 +780,7 @@ void Device::createLogicalDevice()
     if (m_wantPresent)
         deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 
+#ifdef _WIN32
     if (m_externalWin32)
     {
         // Capability extensions (VK_KHR_external_memory_capabilities /
@@ -650,16 +792,25 @@ void Device::createLogicalDevice()
         deviceExtensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);
         deviceExtensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
     }
+#endif
 
     VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     dci.pNext = &features2;
-    dci.queueCreateInfoCount = 1;
-    dci.pQueueCreateInfos = &qci;
+    dci.queueCreateInfoCount = (uint32_t)qcis.size();
+    dci.pQueueCreateInfos = qcis.data();
     dci.enabledExtensionCount = (uint32_t)deviceExtensions.size();
     dci.ppEnabledExtensionNames = deviceExtensions.data();
     VK_CHECK(vkCreateDevice(m_physicalDevice, &dci, nullptr, &m_device));
 
     vkGetDeviceQueue(m_device, m_computeQueueFamily, 0, &m_computeQueue);
+    if (m_sideFamily != ~0u)
+        vkGetDeviceQueue(m_device, m_sideFamily, sideIndex, &m_sideQueue);
+    if (m_copyFamily != ~0u)
+        vkGetDeviceQueue(m_device, m_copyFamily, 0, &m_copyQueue);
+    m_sharedFamilies.clear();
+    for (uint32_t f : {m_computeQueueFamily, m_sideFamily, m_copyFamily})
+        if (f != ~0u && std::find(m_sharedFamilies.begin(), m_sharedFamilies.end(), f) == m_sharedFamilies.end())
+            m_sharedFamilies.push_back(f);
 
     if (m_validation)
     {

@@ -1,21 +1,12 @@
-/*
- * Copyright (c) 2026 Chris Giles
- *
- * Permission to use, copy, modify, distribute and sell this software
- * and its documentation for any purpose is hereby granted without fee,
- * provided that the above copyright notice appear in all copies.
- * Chris Giles makes no representations about the suitability
- * of this software for any purpose.
- * It is provided "as is" without express or implied warranty.
- */
-
 #pragma once
 
 // Small helpers shared by the Vulkan backend translation units: a check macro that
 // reports and throws avbdvk::VkError. A caller that does not catch it terminates the
-// process (std::terminate -> abort), the old behaviour; the 2D C ABI catches it and
-// returns an error code instead. Destroy paths never use VK_CHECK, so unwinding cannot
-// throw again.
+// process (std::terminate -> abort), the old behaviour; the C ABIs and VkWorld::stepBegin/
+// stepEnd catch it and turn it into an error (the world goes dead, see StepResult::vkError).
+// Destroy paths never use VK_CHECK, so unwinding cannot throw again.
+// AVBD_VK_ABORT_ON_ERROR=1 restores print + abort() at the failing call (debugging: the
+// device-lost recipe in docs/TESTING.md wants the failing stack, not an error code).
 
 #include <cstdio>
 #include <cstdlib>
@@ -26,6 +17,17 @@
 
 namespace avbdvk
 {
+
+// Workgroup counts: ceil(n / d). The signed form returns 0 for n <= 0 (an empty phase dispatches
+// nothing); the unsigned form is the plain ceiling.
+constexpr uint32_t ceilDiv(uint32_t n, uint32_t d)
+{
+    return (n + d - 1) / d;
+}
+constexpr uint32_t ceilDiv(int n, int d)
+{
+    return n <= 0 ? 0u : (uint32_t)((n + d - 1) / d);
+}
 
 // A failed Vulkan call (or an unusable device / exhausted budget, see below).
 class VkError : public std::runtime_error

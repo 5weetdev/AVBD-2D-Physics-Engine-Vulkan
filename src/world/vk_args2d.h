@@ -41,6 +41,8 @@ struct World2Gpu
     DevPtr ccdFlag, ccdList, ccdCount, ccdStat, ccdArgs, bShape, bExt, bBullet;
     // Host mutations and the moved-body list.
     DevPtr bPatch, jPatch, moved, movedCount, saveAwake, savePos, saveAng;
+    // Solver substeps: the pose at the start of the current substep.
+    DevPtr subPos, subAng;
     // Scalars.
     uint32_t bodyCount, dynCount, statCount, tableMask, ignoreCount, pairCap, contactCap, prevCount, jointCount;
     float dt, gravityX, alpha, betaLin, betaAng, gamma, dualDamping, dualDampVel, cellSize, killY;
@@ -57,6 +59,8 @@ struct World2Gpu
     float ccdSafety;
     float gravityY;
     uint32_t bPatchCount, jPatchCount;
+    float subDt;
+    uint32_t substeps;
 };
 
 // What a dispatch's push constant points at (Args2 in types2d.slang).
@@ -85,7 +89,7 @@ struct QueryBatch2Gpu
 };
 
 static_assert(sizeof(ManSet2Gpu) == 16 * 8, "ManSet2Gpu drifted from types2d.slang");
-static_assert(sizeof(World2Gpu) == 120 * 8 + 54 * 4, "World2Gpu drifted from types2d.slang");
+static_assert(sizeof(World2Gpu) == 122 * 8 + 56 * 4, "World2Gpu drifted from types2d.slang");
 static_assert(sizeof(QueryBatch2Gpu) == 13 * 8 + 6 * 4, "QueryBatch2Gpu drifted from types2d.slang");
 static_assert(sizeof(DispatchArgs2Gpu) == 24, "DispatchArgs2Gpu drifted from types2d.slang");
 

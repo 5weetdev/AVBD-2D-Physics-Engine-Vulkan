@@ -492,37 +492,6 @@ Proxy2D makeCircleProxy(Vec2 center, float radius)
     return p;
 }
 
-Proxy2D makeCapsuleProxy(Vec2 a, Vec2 b, float radius)
-{
-    Proxy2D p;
-    p.count = 2;
-    p.pts[0] = a;
-    p.pts[1] = b;
-    p.radius = radius;
-    return p;
-}
-
-Proxy2D makeBoxProxy(Vec2 center, float angle, Vec2 h, float radius)
-{
-    Proxy2D p;
-    p.count = 4;
-    p.radius = radius;
-    const Vec2 lv[4] = {Vec2(-h.x, -h.y), Vec2(h.x, -h.y), Vec2(h.x, h.y), Vec2(-h.x, h.y)};
-    for (int i = 0; i < 4; i++)
-        p.pts[i] = center + rotate(angle, lv[i]);
-    return p;
-}
-
-Proxy2D makePolygonProxy(const Vec2 *pts, int count, float radius)
-{
-    Proxy2D p;
-    p.count = std::min(count, 8);
-    p.radius = radius;
-    for (int i = 0; i < p.count; i++)
-        p.pts[i] = pts[i];
-    return p;
-}
-
 DistanceResult2D proxyDistance(const Proxy2D &a, const Proxy2D &b)
 {
     const CoreDistance cd = coreDistance(a, b);

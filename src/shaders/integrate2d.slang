@@ -1,6 +1,6 @@
 // The 2D integrate stage: csIntegrate2D (inertial target y, adaptive warm start),
-// csVelocity2D (BDF1 velocity reconstruction) and csGuard2D (kill-fallen plus the
-// last-resort explosion circuit breaker).
+// csVelocity2D (BDF1 velocity reconstruction) and guardBody (kill-fallen plus the
+// last-resort explosion circuit breaker). Same operation order as the 3D integrate.slang.
 
 import maths2d;
 import types2d;
@@ -15,10 +15,13 @@ ConstantBuffer<PushConstants> pc;
 
 static const float WORLD_BOUND = 100000.0f;
 
-// One body of csIntegrate2D; csIntegrateJointInit2D (solver2d.slang) runs it too.
-public void integrateBody(World2 *w, uint i)
+// One body of csIntegrate2D; csIntegrateJointInit2D (solver2d.slang) runs it too. `sub` is the solver
+// substep: 0 starts the step (x^t is recorded in initPos / initAng, which collision keeps reading
+// all step), later ones continue from the solved pose and leave x^t alone. Either way the substep's
+// own start pose goes to subPos / subAng and the target is built with the substep length h.
+public void integrateBody(World2 *w, uint i, uint sub)
 {
-    float dt = w->dt;
+    float dt = w->subDt;
     float m = w->mass[i];
     vec2 p = w->pos[i];
     float th = w->ang[i];
@@ -47,8 +50,13 @@ public void integrateBody(World2 *w, uint i)
     }
 
     // x^t, and the inertial target y (Eq. 2).
-    w->initPos[i] = p;
-    w->initAng[i] = th;
+    if (sub == 0u)
+    {
+        w->initPos[i] = p;
+        w->initAng[i] = th;
+    }
+    w->subPos[i] = p;
+    w->subAng[i] = th;
     vec2 inert = v2add(p, v2mul(v, dt));
     if (m > 0.0f)
         inert = v2add(inert, v2mul(g, dt * dt));
@@ -89,7 +97,7 @@ void csIntegrate2D(uint3 tid: SV_DispatchThreadID)
     World2 *w = args->w;
     if (tid.x >= w->bodyCount)
         return;
-    integrateBody(w, tid.x);
+    integrateBody(w, tid.x, args->a);
 }
 
 // The x part of gravity, run right after csIntegrate2D when gravity.x != 0: the same inertial
@@ -107,7 +115,7 @@ void csGravityX2D(uint3 tid: SV_DispatchThreadID)
     if (m <= 0.0f)
         return;
 
-    float dt = w->dt;
+    float dt = w->subDt;
     float gx = w->gravityX * w->bProps[i].x;
     if (gx == 0.0f)
         return;
@@ -121,14 +129,15 @@ void csGravityX2D(uint3 tid: SV_DispatchThreadID)
     }
 }
 
+// BDF1 over the substep: (pose - substep start) / h. With one substep that is (pose - x^t) / dt.
 void velocityBody(World2 *w, uint i)
 {
     w->prevVel[i] = w->vel[i];
     if (w->mass[i] > 0.0f && w->awake[i] != 0)
     {
-        float invDt = 1.0f / w->dt;
-        w->vel[i] = v2mul(v2sub(w->pos[i], w->initPos[i]), invDt);
-        w->angVel[i] = (w->ang[i] - w->initAng[i]) * invDt;
+        float invDt = 1.0f / w->subDt;
+        w->vel[i] = v2mul(v2sub(w->pos[i], w->subPos[i]), invDt);
+        w->angVel[i] = (w->ang[i] - w->subAng[i]) * invDt;
     }
 }
 
@@ -180,19 +189,7 @@ void guardBody(World2 *w, int i)
 // from the simulation (awake = 0, sleepTimer = -1: it never wakes and the broadphase ignores
 // it). Counts removals in counters[3]. Without this a diverged joint or pile would hand the
 // broadphase thousands of bodies on one point.
-[shader("compute")]
-[numthreads(256, 1, 1)]
-void csGuard2D(uint3 tid: SV_DispatchThreadID)
-{
-    Args2 *args = (Args2 *)pc.argsAddr;
-    World2 *w = args->w;
-    uint t = tid.x;
-    if (t >= w->dynCount)
-        return;
-    guardBody(w, w->dyn[t]);
-}
-
-// csVelocity2D then csGuard2D for one body, in one dispatch over all bodies. Both touch only that
+// csVelocity2D then guardBody for one body, in one dispatch over all bodies. Both touch only that
 // body's own data (guard writes the removal counter), so doing the two in order per body equals
 // doing all the velocities and then all the guards. The dynamic list is the bodies with mass > 0.
 [shader("compute")]
@@ -206,5 +203,18 @@ void csVelocityGuard2D(uint3 tid: SV_DispatchThreadID)
         return;
     velocityBody(w, i);
     if (w->mass[i] > 0.0f)
+    {
         guardBody(w, (int)i);
+        // Diagnostics: the fastest awake dynamic body after the step (counters[10], float bits of a
+        // non-negative value, so an integer max orders them).
+        if (w->awake[i] != 0)
+        {
+            float sp = v2len(w->vel[i]);
+            if (finitef(sp))
+            {
+                int old;
+                InterlockedMax(w->counters[10], asint(sp), old);
+            }
+        }
+    }
 }

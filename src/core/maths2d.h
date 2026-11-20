@@ -112,7 +112,7 @@ struct SolverParams2D
     // most grabMaxSpeed * dt from where its body actually is, towards the cursor: a flick moves
     // the body no faster than this, and a held body that is blocked does not wind the spring up
     // (and fling everything when it slips free).
-    float grabMaxSpeed = 20.0f;
+    float grabMaxSpeed = 200.0f;
 
     // Per-body sleeping. A body whose speed stays under twice
     // sleepLinVel / sleepAngVel for sleepFrames steps and whose net movement over that whole

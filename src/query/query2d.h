@@ -25,9 +25,6 @@ struct Proxy2D
 };
 
 Proxy2D makeCircleProxy(Vec2 center, float radius);
-Proxy2D makeCapsuleProxy(Vec2 a, Vec2 b, float radius);
-Proxy2D makeBoxProxy(Vec2 center, float angle, Vec2 halfExtents, float radius = 0.0f);
-Proxy2D makePolygonProxy(const Vec2 *pts, int count, float radius = 0.0f);
 
 struct DistanceResult2D
 {

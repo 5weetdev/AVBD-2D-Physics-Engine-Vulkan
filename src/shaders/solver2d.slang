@@ -29,6 +29,13 @@ static const float PENALTY_MIN = 1.0f;
 static const float PENALTY_MAX = 10000000000.0f;
 static const float JOINT_PENALTY_MAX = 500000.0f;
 static const float STICK_THRESH = 0.00001f;
+// A contact dual update may grow the penalty by at most this factor over the larger of its current
+// value and the row's effective-mass stiffness m_eff/dt^2. The additive ramp k += beta|C| reads
+// Gauss-Seidel lag in a jammed column of light bodies as constraint error and can raise k a
+// thousandfold in one update; the multiplier then winds up a preload the body releases as velocity.
+// Growing k geometrically instead (penalty continuation, as in the method of multipliers) keeps every
+// update a small step for the inexact primal solve. k itself stays unbounded.
+static const float PENALTY_GROWTH = 2.0f;
 
 // Graph key layout: (body << 32) | (type << 29) | index, as built by constraints.slang.
 int graphType(uint64_t k) { return (int)((uint)(k & 0xFFFFFFFFu) >> 29); }
@@ -352,7 +359,7 @@ JRow jointRow(World2 *w, int j, int ax, int sub, JointAxis2 a, float s)
         {
             r.exists = true;
             r.hard = true;
-            r.C = sc * (s - c0 - a.mtarget * w->dt); // no stabilisation: a velocity, not a position
+            r.C = sc * (s - c0 - a.mtarget * w->subDt); // no stabilisation: a velocity, not a position
         }
         else if (a.motor == 2u)
         {
@@ -443,9 +450,29 @@ void stampJoint(World2 *w, int j, bool isA, inout Sys3 s)
             vec2 jl;
             float ja;
             jointJac(g, ax, isA, jl, ja);
-            if (r.stamp)
+            float p = r.pen;
+            bool curved = r.stamp;
+            // A saturated position servo (TARGET motor) still stamps some curvature. With none the
+            // body's Newton step takes the bound force against inertia alone (maxF dt^2 / I, hundreds
+            // of radians for a light limb) and shoots far past the target, where the servo's force
+            // flips sign; the stiff row throws it back to the opposite bound and a jointed chain
+            // diverges. The curvature is the secant that makes that step end where the servo
+            // desaturates: the unclamped force is e past its bound and falls by pen per unit of
+            // travel, so the step b / (kEff + k) should not exceed e / pen. Deep in saturation it is
+            // ~0 and the servo keeps its full torque; at the edge it is up to the penalty. The force
+            // stays clamped either way. Velocity motors (wheels, joint friction) and limits keep the
+            // strict rule: a velocity motor's error restarts from the pose every step, and a clamped
+            // limit is inactive and must not resist leaving it.
+            if (!curved && sub == 1 && a.motor == 2u && p > 0.0f)
             {
-                float p = r.pen;
+                float fu = p * r.C + w->jLam[j * 9 + sub * 3 + ax];
+                float e = abs(fu - r.F);
+                float k = e > 0.0f ? abs(r.F) * p / e - jointRowEffK(w, j, g, ax) : p;
+                p = clamp(k, 0.0f, p);
+                curved = p > 0.0f;
+            }
+            if (curved)
+            {
                 s.l00 += p * jl.x * jl.x;
                 s.l01 += p * jl.x * jl.y;
                 s.l11 += p * jl.y * jl.y;
@@ -497,11 +524,36 @@ float jointInvMass(World2 *w, int ia, int ib, vec2 rAW, vec2 rBW, vec2 axis)
 float jointEffK(World2 *w, int ia, int ib, vec2 rAW, vec2 rBW, vec2 axis)
 {
     float inv = jointInvMass(w, ia, ib, rAW, rBW, axis);
-    float dt = w->dt;
+    float dt = w->subDt;
     return inv > 0.0f ? clampf(1.0f / (inv * dt * dt), PENALTY_MIN, PENALTY_MAX) : PENALTY_MIN;
 }
 
-void jointInitBody(World2 *w, int j, vec2 *P, float *A)
+// m_eff / dt^2 of joint j's axis ax in the row's own units (angular rows are arm-scaled), unclamped
+// below so it stays meaningful for light bodies.
+float jointRowEffK(World2 *w, int j, JGeo g, int ax)
+{
+    int ia = w->jA[j];
+    int ib = w->jB[j];
+    float inv;
+    if (ax == 2)
+    {
+        inv = 0.0f;
+        if (ia >= 0 && w->moment[ia] > 0.0f)
+            inv += 1.0f / w->moment[ia];
+        if (w->moment[ib] > 0.0f)
+            inv += 1.0f / w->moment[ib];
+        inv *= g.arm * g.arm;
+    }
+    else
+        inv = jointInvMass(w, ia, ib, g.rAW, g.rBW, ax == 0 ? g.u0 : g.u1);
+    float dt = w->subDt;
+    return inv > 0.0f ? min(1.0f / (inv * dt * dt), PENALTY_MAX) : 0.0f;
+}
+
+// `sub` is the solver substep. From substep 1 on the warm start is a carry-over, not a new step: the
+// multipliers and penalties keep what the last substep ended with (no alpha / gamma decay again), only
+// C0, the effective-mass caps and the clamps are redone at the new substep's pose and length.
+void jointInitBody(World2 *w, int j, vec2 *P, float *A, uint sub)
 {
     if ((uint)j >= w->jointCount || w->jBroken[j] != 0)
         return;
@@ -511,8 +563,8 @@ void jointInitBody(World2 *w, int j, vec2 *P, float *A)
         return;
 
     JGeo g = jointGeoAt(w, j, P, A);
-    float alpha = w->alpha;
-    float gamma = w->gamma;
+    float alpha = sub == 0u ? w->alpha : 1.0f;
+    float gamma = sub == 0u ? w->gamma : 1.0f;
 
     // Clamp to the material stiffness and to the effective-mass baseline, which stops a
     // warm-started penalty ratcheting past what the bodies involved can support.
@@ -524,7 +576,7 @@ void jointInitBody(World2 *w, int j, vec2 *P, float *A)
     if (w->moment[ib] > 0.0f)
         invI += 1.0f / w->moment[ib];
     float wAng = invI * g.arm * g.arm;
-    float kAng = wAng > 0.0f ? clampf(1.0f / (wAng * w->dt * w->dt), PENALTY_MIN, PENALTY_MAX) : PENALTY_MIN;
+    float kAng = wAng > 0.0f ? clampf(1.0f / (wAng * w->subDt * w->subDt), PENALTY_MIN, PENALTY_MAX) : PENALTY_MIN;
     float maxKLin = min(max(10.0f * max(kx, ky), 1000.0f), JOINT_PENALTY_MAX);
     float maxKAng = min(max(10.0f * kAng, 1000.0f), JOINT_PENALTY_MAX);
 
@@ -564,8 +616,28 @@ void jointInitBody(World2 *w, int j, vec2 *P, float *A)
                 continue;
             }
             float pen = clampf(w->jPen[idx] * gamma, PENALTY_MIN, JOINT_PENALTY_MAX);
-            float cap = maxK;
-            if (!r.hard)
+            // Hard rows may raise their cap with a per-joint lock scale (JointAxis2.lockScale, driven by
+            // avbd2d_revolute_joint_set_lock_scale; 0 = the historical cap). Light active-ragdoll limbs
+            // need a stiffer anchor lock than the stock ragdoll without touching any global setting.
+            // Spring rows keep their authored stiffness and never read lockScale.
+            float cap;
+            if (r.hard)
+            {
+                // `lockScale` is the per-joint lock scale (1 = stock). It raises the penalty ceiling and,
+                // for the stiff human lock, also floors the position penalty so a light limb's anchor does
+                // not hang on a soft row between impact frames. scale 1 -> floor 0, keeping stock joints
+                // bit-identical.
+                float scale = clamp(a.lockScale, 1.0f, 64.0f);
+                cap = min(maxK * scale, JOINT_PENALTY_MAX);
+                w->jPen[idx] = min(pen, cap);
+                if (sub == 0)
+                {
+                    const float kLockFloor = 50000.0f;
+                    w->jPen[idx] = max(w->jPen[idx], kLockFloor * (scale - 1.0f) / 63.0f);
+                }
+                continue;
+            }
+            else
                 cap = min(a.stiff, maxK);
             w->jPen[idx] = min(pen, cap);
         }
@@ -578,7 +650,7 @@ void csJointInit2D(uint3 tid: SV_DispatchThreadID)
 {
     Args2 *args = (Args2 *)pc.argsAddr;
     World2 *w = args->w;
-    jointInitBody(w, (int)tid.x, w->pos, w->ang);
+    jointInitBody(w, (int)tid.x, w->pos, w->ang, args->a);
 }
 
 // csJointInit2D then csIntegrate2D in one dispatch. The joint warm start must see x^t, the pose
@@ -593,9 +665,9 @@ void csIntegrateJointInit2D(uint3 tid: SV_DispatchThreadID)
     Args2 *args = (Args2 *)pc.argsAddr;
     World2 *w = args->w;
     if (tid.x < w->jointCount)
-        jointInitBody(w, (int)tid.x, w->savePos, w->saveAng);
+        jointInitBody(w, (int)tid.x, w->savePos, w->saveAng, 0u);
     if (tid.x < w->bodyCount)
-        integrateBody(w, tid.x);
+        integrateBody(w, tid.x, 0u);
 }
 
 void jointDualBody(World2 *w, int j)
@@ -661,14 +733,6 @@ void jointDualBody(World2 *w, int j)
     w->jForce[j] = vec3(fB.x, fB.y, tqB);
 }
 
-[shader("compute")]
-[numthreads(128, 1, 1)]
-void csJointDual2D(uint3 tid: SV_DispatchThreadID)
-{
-    Args2 *args = (Args2 *)pc.argsAddr;
-    jointDualBody(args->w, (int)tid.x);
-}
-
 // ---------------------------------------------------------------------------
 // Primal: one dispatch per colour, one body per thread.
 // ---------------------------------------------------------------------------
@@ -683,7 +747,7 @@ void primalBody(World2 *w, int color, int t)
     if (m <= 0.0f || w->awake[i] == 0)
         return;
 
-    float invDt2 = 1.0f / (w->dt * w->dt);
+    float invDt2 = 1.0f / (w->subDt * w->subDt);
     float inertia = w->moment[i];
     vec2 pos = w->pos[i];
     float th = w->ang[i];
@@ -757,6 +821,23 @@ void csPrimal2D(uint3 tid: SV_DispatchThreadID)
     primalBody(args->w, (int)args->a, (int)tid.x);
 }
 
+// m_eff / dt^2 of a contact row along `axis` with levers rAW, rBW; bodies without mass add nothing.
+float contactEffK(World2 *w, int ia, int ib, vec2 rAW, vec2 rBW, vec2 axis)
+{
+    float inv = 0.0f;
+    if (w->mass[ia] > 0.0f)
+    {
+        float c = v2cross(rAW, axis);
+        inv += 1.0f / w->mass[ia] + (w->moment[ia] > 0.0f ? c * c / w->moment[ia] : 0.0f);
+    }
+    if (w->mass[ib] > 0.0f)
+    {
+        float c = v2cross(rBW, axis);
+        inv += 1.0f / w->mass[ib] + (w->moment[ib] > 0.0f ? c * c / w->moment[ib] : 0.0f);
+    }
+    return inv > 0.0f ? clampf(1.0f / (inv * w->subDt * w->subDt), PENALTY_MIN, PENALTY_MAX) : PENALTY_MAX;
+}
+
 // ---------------------------------------------------------------------------
 // Dual for contacts: one thread per manifold slot.
 // ---------------------------------------------------------------------------
@@ -802,12 +883,18 @@ void dualBody(World2 *w, uint t)
         w->cur.lambda[o] = e.F;
         sumN += abs(e.F.x);
         uint stk = (uint)w->cur.stick[o];
+        vec2 rAW = v2rot(angA, w->cur.rA[o]);
+        vec2 rBW = v2rot(angB, w->cur.rB[o]);
 
         if (e.F.x < 0.0f)
-            pen.x = min(pen.x + betaLin * abs(e.C.x), PENALTY_MAX);
+        {
+            float grow = PENALTY_GROWTH * max(pen.x, contactEffK(w, ia, ib, rAW, rBW, nrm));
+            pen.x = min(min(pen.x + betaLin * abs(e.C.x), grow), PENALTY_MAX);
+        }
         if (e.fscale <= e.bounds)
         {
-            pen.y = min(pen.y + betaLin * abs(e.C.y), PENALTY_MAX);
+            float grow = PENALTY_GROWTH * max(pen.y, contactEffK(w, ia, ib, rAW, rBW, v2perp(nrm)));
+            pen.y = min(min(pen.y + betaLin * abs(e.C.y), grow), PENALTY_MAX);
             stk = abs(e.C.y) < STICK_THRESH ? 1u : 0u;
         }
         w->cur.stick[o] = (uint8_t)stk;
@@ -831,17 +918,8 @@ void dualBody(World2 *w, uint t)
     }
 }
 
-[shader("compute")]
-[numthreads(128, 1, 1)]
-void csDual2D(uint3 tid: SV_DispatchThreadID)
-{
-    Args2 *args = (Args2 *)pc.argsAddr;
-    dualBody(args->w, tid.x);
-}
-
-// csDual2D and csJointDual2D in one dispatch: contact duals on threads below pairCap, joint duals
-// on threads below jointCount. The two write disjoint state and only read poses, so one dispatch
-// equals the pair of them.
+// Contact duals on threads below pairCap, joint duals
+// on threads below jointCount. The two write disjoint state and only read poses.
 [shader("compute")]
 [numthreads(128, 1, 1)]
 void csDualAll2D(uint3 tid: SV_DispatchThreadID)

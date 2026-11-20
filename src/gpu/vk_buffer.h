@@ -1,14 +1,3 @@
-/*
- * Copyright (c) 2026 Chris Giles
- *
- * Permission to use, copy, modify, distribute and sell this software
- * and its documentation for any purpose is hereby granted without fee,
- * provided that the above copyright notice appear in all copies.
- * Chris Giles makes no representations about the suitability
- * of this software for any purpose.
- * It is provided "as is" without express or implied warranty.
- */
-
 #pragma once
 
 // Device-local buffers with SHADER_DEVICE_ADDRESS usage, plus a staging upload/readback
@@ -36,6 +25,10 @@ public:
 
     void init(Device &dev) { m_dev = &dev; }
     void destroy();
+    // Concurrent sharing across Device::sharedFamilies(), for a buffer the side or copy
+    // queue reads while the step queue owns everything else. Takes effect at the next
+    // resize(); a device with one queue family stays exclusive.
+    void setConcurrent(bool on) { m_concurrent = on; }
 
     // (Re)allocates to at least `bytes`. Existing contents are NOT preserved.
     void resize(VkDeviceSize bytes, VkBufferUsageFlags extraUsage = 0);
@@ -67,6 +60,7 @@ private:
     VkDeviceAddress m_address = 0;
     VkDeviceSize m_size = 0;
     VkDeviceSize m_charged = 0; // bytes charged to Device's memory budget accounting
+    bool m_concurrent = false;
 };
 
 // Host-visible, persistently mapped buffer -- the "argument ring" the push-constant

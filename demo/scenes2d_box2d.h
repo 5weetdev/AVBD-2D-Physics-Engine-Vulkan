@@ -8,7 +8,7 @@
 // at every iteration count (8, 20, 60) and motor speed (5, 1.5) tried. Card House and Arch run with
 // more iterations (100 and 40) than the default: at 8 they collapse within 300 steps.
 // Differences forced by this solver: joint anchors must coincide in the starting pose (a joint
-// takes one world point), spring damping ratios are ignored, per-joint constraint tuning does not
+// takes one world point), per-joint constraint tuning does not
 // exist, and the Tumbler spins as a kinematic body instead of through a motor.
 
 #include "scene2d.h"
@@ -48,14 +48,13 @@ inline int revolute(Scene2D &s, int a, int b, Vec2 pt, float frictionTorque = 0.
     {
         d.enableSpring = true;
         d.hertz = hertz;
-        d.dampingRatio = 0.7f;
     }
     return s.addJoint(d);
 }
 
 // Box2D's Car (samples/car.cpp): a rounded polygon chassis and two wheels on wheel joints.
 // speed is the motor speed (rad/s, negative = forward, +x), torque the motor limit.
-inline int car(Scene2D &s, Vec2 pos, float scale, float hertz, float damping, float torque, float speed)
+inline int car(Scene2D &s, Vec2 pos, float scale, float hertz, float torque, float speed)
 {
     Vec2 v[6] = {Vec2(-1.5f, -0.5f), Vec2(1.5f, -0.5f),  Vec2(1.5f, 0.0f),
                  Vec2(0.0f, 0.9f),   Vec2(-1.15f, 0.9f), Vec2(-1.5f, 0.2f)};
@@ -73,7 +72,6 @@ inline int car(Scene2D &s, Vec2 pos, float scale, float hertz, float damping, fl
         Scene2D::JointDef2D d = s.makeJointDef(Scene2D::JointType2D::Wheel, chassis, wheel, wp[i], Vec2(0.0f, 1.0f));
         d.enableSpring = hertz > 0.0f;
         d.hertz = hertz;
-        d.dampingRatio = damping;
         d.enableLimit = true;
         d.lower = -0.25f * scale;
         d.upper = 0.25f * scale;
@@ -331,9 +329,7 @@ inline void b2Cantilever(Scene2D &s)
         const int id = s.endBody();
         Scene2D::JointDef2D d = s.makeJointDef(Scene2D::JointType2D::Weld, prev, id, Vec2(2.0f * (float)i * hx, 0.0f));
         d.linearHertz = 15.0f;
-        d.linearDampingRatio = 0.5f;
         d.angularHertz = 5.0f;
-        d.angularDampingRatio = 0.5f;
         s.addJoint(d);
         prev = id;
     }
@@ -398,9 +394,9 @@ inline void b2ScissorLift(Scene2D &s)
     // The lift's distance joint: slack inside [0.2, 5.5] (a spring of near-zero stiffness).
     const Vec2 a(-2.5f, 0.2f);
     const Vec2 b = s.pos[(size_t)linkId1] + rotate(s.ang[(size_t)linkId1], Vec2(0.5f, 0.0f));
-    s.addDistanceJoint(-1, linkId1, a, b, length(b - a), true, 0.01f, 0.0f, 0.2f, 5.5f);
+    s.addDistanceJoint(-1, linkId1, a, b, length(b - a), true, 0.01f, 0.2f, 5.5f);
 
-    b2s::car(s, Vec2(0.0f, topEnd + 0.4f + 2.0f), 1.0f, 3.0f, 0.7f, 0.0f, 0.0f);
+    b2s::car(s, Vec2(0.0f, topEnd + 0.4f + 2.0f), 1.0f, 3.0f, 0.0f, 0.0f);
     s.cameraCenter = Vec2(0.0f, 5.0f);
     s.cameraHeight = 20.0f;
 }
@@ -467,7 +463,7 @@ inline void b2Driving(Scene2D &s)
     for (int i = 0; i < 5; i++)
         s.addBox(Vec2(230.0f, 0.5f + (float)i), 0.0f, Vec2(1.0f, 1.0f), 0.25f, 0.25f);
 
-    b2s::car(s, Vec2(0.0f, 0.0f), 1.0f, 5.0f, 0.7f, 5.0f, -10.0f);
+    b2s::car(s, Vec2(0.0f, 0.0f), 1.0f, 5.0f, 5.0f, -10.0f);
     s.cameraCenter = Vec2(30.0f, 8.0f);
     s.cameraHeight = 40.0f;
 }
@@ -846,14 +842,14 @@ inline void b2TheoJansen(Scene2D &s)
         s.angularDamping[(size_t)b2] = 10.0f;
         // Soft distance constraints act as the suspension.
         Vec2 aA = p2 + offset, aB = p5 + offset;
-        s.addDistanceJoint(b1, b2, aA, aB, length(aA - aB), true, 10.0f, 0.5f);
+        s.addDistanceJoint(b1, b2, aA, aB, length(aA - aB), true, 10.0f);
         aA = p3 + offset;
         aB = p4 + offset;
-        s.addDistanceJoint(b1, b2, aA, aB, length(aA - aB), true, 10.0f, 0.5f);
+        s.addDistanceJoint(b1, b2, aA, aB, length(aA - aB), true, 10.0f);
         aB = wheelAnchor + offset;
-        s.addDistanceJoint(b1, wheel, aA, aB, length(aA - aB), true, 10.0f, 0.5f);
+        s.addDistanceJoint(b1, wheel, aA, aB, length(aA - aB), true, 10.0f);
         aA = p6 + offset;
-        s.addDistanceJoint(b2, wheel, aA, aB, length(aA - aB), true, 10.0f, 0.5f);
+        s.addDistanceJoint(b2, wheel, aA, aB, length(aA - aB), true, 10.0f);
         s.addJoint(s.makeJointDef(Scene2D::JointType2D::Revolute, b2, chassis, p4 + offset));
     };
     leg(-1.0f);
@@ -1051,7 +1047,7 @@ inline void b2TypicalGame(Scene2D &s)
         s.addJoint(d);
     }
     // A car.
-    b2s::car(s, Vec2(-24.0f, h(-24.0f) + 0.6f), 0.6f, 4.0f, 0.7f, 2.0f, -5.0f);
+    b2s::car(s, Vec2(-24.0f, h(-24.0f) + 0.6f), 0.6f, 4.0f, 2.0f, -5.0f);
     // A kinematic windmill and a lift.
     {
         const int mill = s.addBox(Vec2(10.0f, 12.0f), 0.0f, Vec2(8.0f, 0.4f), 1.0f, 0.5f);

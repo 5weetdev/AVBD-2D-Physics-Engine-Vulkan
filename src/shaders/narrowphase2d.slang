@@ -72,7 +72,7 @@ float effectiveK(World2 *w, int ia, int ib, vec2 rAW, vec2 rBW, vec2 axis)
         inv += cA * cA / iA;
     if (iB > 0.0f)
         inv += cB * cB / iB;
-    float dt = w->dt;
+    float dt = w->subDt; // the solve's step: the penalty is a stiffness for the substep's inertia
     return inv > 0.0f ? clampf(1.0f / (inv * dt * dt), PENALTY_MIN_NP, PENALTY_MAX_NP) : PENALTY_MIN_NP;
 }
 
@@ -256,6 +256,9 @@ void csNarrowphase2D(uint3 tid: SV_DispatchThreadID)
 
     // The margin also covers the part of gravity the adaptive warm start left out.
     vec2 sweep = v2sub(v2sub(w->pos[ia], posA0), v2sub(w->pos[ib], posB0));
+    // With substeps the warm-started pose moved one substep; the contacts must cover the whole step.
+    if (w->substeps > 1u)
+        sweep = v2mul(sweep, (float)w->substeps);
     float margin = COLLISION_MARGIN2 + v2len(sweep) + (abs(w->gravityY) + abs(w->gravityX)) * w->dt * w->dt;
     int2 vrA = w->sVR[sa];
     int2 vrB = w->sVR[sb];
@@ -402,7 +405,7 @@ void csNarrowphase2D(uint3 tid: SV_DispatchThreadID)
             invI += 1.0f / w->moment[ib];
         if (invI > 0.0f)
         {
-            float kRoll = clampf(1.0f / (invI * w->dt * w->dt), PENALTY_MIN_NP, PENALTY_MAX_NP);
+            float kRoll = clampf(1.0f / (invI * w->subDt * w->subDt), PENALTY_MIN_NP, PENALTY_MAX_NP);
             roll = float4(0.0f, kRoll, rr * rad, 0.0f);
             if (pi >= 0)
             {
@@ -414,6 +417,11 @@ void csNarrowphase2D(uint3 tid: SV_DispatchThreadID)
         }
     }
     w->cur.roll[t] = roll;
+    // Diagnostics: per contact point, the approach speed along the normal times dt, and the penetration
+    // depth, both against the smaller body's thinnest shape extent (the one CCD measures "fast" by).
+    float cflMax = 0.0f;
+    float penMax = 0.0f;
+    float thick = max(min(w->bExt[ia].x, w->bExt[ib].x), 1e-3f);
     for (int i = 0; i < cnt; i++)
     {
         int o = off + i;
@@ -426,6 +434,12 @@ void csNarrowphase2D(uint3 tid: SV_DispatchThreadID)
             rBW = v2add(rBW, offB);
         vec2 d = v2sub(v2add(posA0, rAW), v2add(posB0, rBW));
         vec2 C0 = vec2(v2dot(n, d) + COLLISION_MARGIN2, v2dot(tgt, d));
+        {
+            vec2 vA = v2add(w->vel[ia], v2mul(v2perp(rAW), w->angVel[ia]));
+            vec2 vB = v2add(w->vel[ib], v2mul(v2perp(rBW), w->angVel[ib]));
+            cflMax = max(cflMax, -v2dot(n, v2sub(vA, vB)) * w->dt / thick);
+            penMax = max(penMax, -v2dot(n, d) / thick);
+        }
 
         vec2 penPrev = pen[i];
         vec2 lamI = v2mul(lam[i], alpha * gamma);
@@ -463,5 +477,15 @@ void csNarrowphase2D(uint3 tid: SV_DispatchThreadID)
         w->cur.penalty[o] = penI;
         w->cur.lambda[o] = lamI;
         w->cur.stick[o] = (uint8_t)(stick[i] ? 1u : 0u);
+    }
+    if (finitef(cflMax) && asint(cflMax) > w->counters[8])
+    {
+        int old;
+        InterlockedMax(w->counters[8], asint(cflMax), old);
+    }
+    if (finitef(penMax) && asint(penMax) > w->counters[9])
+    {
+        int old;
+        InterlockedMax(w->counters[9], asint(penMax), old);
     }
 }

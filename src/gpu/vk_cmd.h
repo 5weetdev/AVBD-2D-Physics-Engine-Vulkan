@@ -1,14 +1,3 @@
-/*
- * Copyright (c) 2026 Chris Giles
- *
- * Permission to use, copy, modify, distribute and sell this software
- * and its documentation for any purpose is hereby granted without fee,
- * provided that the above copyright notice appear in all copies.
- * Chris Giles makes no representations about the suitability
- * of this software for any purpose.
- * It is provided "as is" without express or implied warranty.
- */
-
 #pragma once
 
 // Command buffer recording: one dispatch() call per kernel launch (the analogue of a kernel launch), a full compute->compute memory barrier between dependent
@@ -53,6 +42,18 @@ public:
     {
         dispatch(pipeline, groupsX, 1, 1, argsAddr);
     }
+    // Writes `args` into the argument ring and dispatches with its address (the usual pair).
+    template <class A> void dispatchArgs(Pipeline &pipeline, uint32_t groupsX, HostRingBuffer &ring, const A &args)
+    {
+        dispatch(pipeline, groupsX, 1, 1, ring.write(&args, sizeof(args)));
+    }
+    // One thread per element: ceil(n / block) groups; an empty range dispatches nothing.
+    template <class A>
+    void dispatch1D(Pipeline &pipeline, int n, uint32_t block, HostRingBuffer &ring, const A &args)
+    {
+        if (n > 0)
+            dispatchArgs(pipeline, ((uint32_t)n + block - 1) / block, ring, args);
+    }
 
     // A full compute-shader-write -> compute-shader-read memory barrier. Call between
     // any two dispatches where the second reads what the first wrote.
@@ -62,7 +63,7 @@ public:
     // dispatchIndirect() is never gated.
     void setGate(DispatchGate *g) { m_gate = g; }
 
-    // M4: a dispatch whose group count is read from `argsBuf` at `offset` (a
+    // a dispatch whose group count is read from `argsBuf` at `offset` (a
     // VkDispatchIndirectCommand; the buffer needs VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT).
     // The kernel that wrote the command must be fenced with barrierIndirect(), since
     // the indirect read is not a compute-shader read.
@@ -71,7 +72,7 @@ public:
 
     // Recorded transfers, each fenced by a full barrier on both sides so it can sit
     // between any two dispatches: the in-step replacements for the synchronous
-    // Buffer::zero()/upload()/readback() round trips (M4). `bytes` is rounded up to a
+    // Buffer::zero()/upload()/readback() round trips. `bytes` is rounded up to a
     // multiple of 4 and clamped to the buffer, as Buffer::zero() does; 0 is a no-op.
     void fill(Buffer &buf, uint32_t word, VkDeviceSize bytes = ~0ull, VkDeviceSize offset = 0);
     void copy(const Buffer &src, Buffer &dst, VkDeviceSize bytes, VkDeviceSize srcOffset = 0,
@@ -83,6 +84,13 @@ public:
     // A recorded readback: copies into a mapped buffer (made with TRANSFER_DST usage)
     // and makes the write visible to the HOST stage, which ALL_COMMANDS does not cover.
     // Read dst.mapped() after wait(). Replaces a Buffer::readback() one-shot submit.
+    // Several buffer-to-buffer copies under one barrier pair; the regions must not overlap.
+    struct CopyOp
+    {
+        const Buffer *src;
+        VkDeviceSize srcOffset, dstOffset, bytes;
+    };
+    void copyBatch(const CopyOp *ops, int count, Buffer &dst);
     void copyToHost(const Buffer &src, MappedBuffer &dst, VkDeviceSize bytes, VkDeviceSize srcOffset = 0,
                     VkDeviceSize dstOffset = 0);
 
@@ -100,9 +108,13 @@ public:
 
     // The timeline value the most recent submit() signals (0 before the first).
     uint64_t lastSubmitValue() const { return m_timelineValue; }
+    // The timeline lastSubmitValue() counts on, for another queue's submission to wait on.
+    VkSemaphore timeline() const { return m_timeline; }
 
     // Blocks until the most recent submit() has completed.
     void wait();
+    // True when the most recent submit() has completed (or nothing was submitted); never blocks.
+    bool done() const;
 
     // Valid only after wait(). Returns (end - start) in nanoseconds for two indices
     // written with writeTimestamp(), or -1 if timestamps are unsupported/not written.

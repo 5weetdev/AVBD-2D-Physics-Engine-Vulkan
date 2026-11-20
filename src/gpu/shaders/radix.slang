@@ -69,7 +69,7 @@ uint digitU64(uint64_t key, uint pass) { return uint((key >> (uint64_t)(pass * 8
 // Low `n` bits set (n in [0,64]), split across a uint2 the way WaveActiveBallot's
 // returned uint4's .xy holds up to 64 lanes -- z/w are never touched since this port
 // only has to support 32- and 64-wide subgroups.
-// Device-count sorts (M4): the host sizes the grid by capacity and passes the live element
+// Device-count sorts: the host sizes the grid by capacity and passes the live element
 // count as a device pointer, so the sort can be recorded before the count is known. Blocks
 // past the count see no elements -- hist writes zeros, scatter writes nothing -- so the
 // scanned offsets and the output are identical to a sort sized exactly.
@@ -635,8 +635,17 @@ void csReduceOrAndU64(uint3 tid: SV_DispatchThreadID, uint3 gtid: SV_GroupThread
 
     if (gi == 0)
     {
-        InterlockedOr(*args->outOr, sRedOr64[0]);
-        InterlockedAnd(*args->outAnd, sRedAnd64[0]);
+        // Bitwise Or/And act independently per bit, so a 64-bit atomic Or/And is exactly two
+        // 32-bit atomic Or/Ands on the halves (little-endian: word 0 = low). Only
+        // csFinalizeSkipMaskU64, a later dispatch behind a barrier, reads the result.
+        uint *orW = (uint *)args->outOr;
+        uint *andW = (uint *)args->outAnd;
+        uint64_t o = sRedOr64[0];
+        uint64_t a = sRedAnd64[0];
+        InterlockedOr(orW[0], (uint)(o & (uint64_t)0xFFFFFFFF));
+        InterlockedOr(orW[1], (uint)(o >> (uint64_t)32));
+        InterlockedAnd(andW[0], (uint)(a & (uint64_t)0xFFFFFFFF));
+        InterlockedAnd(andW[1], (uint)(a >> (uint64_t)32));
     }
 }
 

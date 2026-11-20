@@ -198,6 +198,32 @@ inline void bigBox(Scene2D &s)
     s.cameraHeight = 540.0f;
 }
 
+// A medium empty container, ¼ the Big Box in each dimension.
+inline void mediumBox(Scene2D &s)
+{
+    s.clear();
+    const float width = 200.0f;
+    const float wallHeight = 186.0f;
+    addGround(s, width + 8.0f);
+    s.addBox(Vec2(-width * 0.5f - 1.0f, wallHeight * 0.5f), 0.0f, Vec2(2.0f, wallHeight), 0.0f, 0.4f);
+    s.addBox(Vec2(width * 0.5f + 1.0f, wallHeight * 0.5f), 0.0f, Vec2(2.0f, wallHeight), 0.0f, 0.4f);
+    s.cameraCenter = Vec2(0.0f, 54.0f);
+    s.cameraHeight = 135.0f;
+}
+
+// A small empty container, ¼ the Medium Box (1/16 the Big Box).
+inline void smallBox(Scene2D &s)
+{
+    s.clear();
+    const float width = 50.0f;
+    const float wallHeight = 47.0f;
+    addGround(s, width + 8.0f);
+    s.addBox(Vec2(-width * 0.5f - 1.0f, wallHeight * 0.5f), 0.0f, Vec2(2.0f, wallHeight), 0.0f, 0.4f);
+    s.addBox(Vec2(width * 0.5f + 1.0f, wallHeight * 0.5f), 0.0f, Vec2(2.0f, wallHeight), 0.0f, 0.4f);
+    s.cameraCenter = Vec2(0.0f, 13.5f);
+    s.cameraHeight = 34.0f;
+}
+
 // Ten brick towers, 16 m wide and 125 courses high, 20,000 bricks in all. Every brick is
 // welded to its neighbours -- along the course and to the two bricks below -- and the bottom
 // course to the ground: a tall welded-brick stress test. The welds are breakable,
@@ -283,7 +309,7 @@ inline uint32_t rgb8(float r, float g, float b)
 // only collides with category 1 (the world), never with another ragdoll. The bodies are
 // contiguous, hip first; returns the torso.
 inline int addRagdoll(Scene2D &s, Vec2 at, float scale, float breakForce, uint32_t shirt, float frictionTorque = 0.03f,
-                      float jointHertz = 5.0f, float jointDamping = 0.5f)
+                      float jointHertz = 5.0f)
 {
     const float k = scale;
     const float pi = 3.14159265f;
@@ -331,7 +357,6 @@ inline int addRagdoll(Scene2D &s, Vec2 at, float scale, float breakForce, uint32
         d.maxMotorTorque = frictionScale * frictionTorque * k;
         d.enableSpring = jointHertz > 0.0f;
         d.hertz = jointHertz;
-        d.dampingRatio = jointDamping;
         d.breakForce = breakForce;
         s.addJoint(d);
     };
@@ -574,7 +599,6 @@ inline void joints(Scene2D &s)
                 s.makeJointDef(Scene2D::JointType2D::Wheel, chassis, wheel, Vec2(wx, y0), Vec2(0.0f, 1.0f));
             d.enableSpring = true;
             d.hertz = 4.0f;
-            d.dampingRatio = 0.7f;
             d.enableLimit = true;
             d.lower = -0.25f;
             d.upper = 0.25f;
@@ -621,7 +645,7 @@ inline void joints(Scene2D &s)
         const int anchor = s.addBox(Vec2(2.0f, 10.0f), 0.0f, Vec2(0.4f, 0.4f), 0.0f);
         const int bob =
             s.addBox(Vec2(2.0f, 6.5f), 0.0f, Vec2(0.8f, 0.8f), 1.0f, 0.5f, Vec2(), 0.0f, rgb8(0.4f, 0.8f, 0.4f));
-        s.addDistanceJoint(anchor, bob, Vec2(2.0f, 10.0f), Vec2(2.0f, 6.5f), 3.0f, true, 1.5f, 0.5f);
+        s.addDistanceJoint(anchor, bob, Vec2(2.0f, 10.0f), Vec2(2.0f, 6.5f), 3.0f, true, 1.5f);
 
         const int holder = s.addBox(Vec2(5.5f, 10.0f), 0.0f, Vec2(0.4f, 0.4f), 0.0f);
         const int held =
@@ -785,6 +809,8 @@ inline const SceneEntry2D *catalogue(int &count)
         {"Pile 500k", pile500k, 500000},
         {"Shapes", shapes, 120},
         {"Chain Terrain", chainTerrain, 362},
+        {"Small Box", smallBox, 3},
+        {"Medium Box", mediumBox, 3},
         {"Big Box", bigBox, 3},
         {"Compound Shapes", compound, 11},
         {"Joints", joints, 40},

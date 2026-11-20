@@ -1,14 +1,3 @@
-/*
- * Copyright (c) 2026 Chris Giles
- *
- * Permission to use, copy, modify, distribute and sell this software
- * and its documentation for any purpose is hereby granted without fee,
- * provided that the above copyright notice appear in all copies.
- * Chris Giles makes no representations about the suitability
- * of this software for any purpose.
- * It is provided "as is" without express or implied warranty.
- */
-
 #pragma once
 
 // Compute pipeline loading from embedded SPIR-V byte arrays, sharing ONE pipeline
@@ -18,6 +7,7 @@
 
 #include "vk_device.h"
 
+#include <array>
 #include <cstdint>
 #include <string>
 
@@ -59,5 +49,31 @@ private:
     VkShaderModule m_module = VK_NULL_HANDLE;
     VkPipelineLayout m_layout = VK_NULL_HANDLE;
 };
+
+// One kernel of a module: the pipeline to build and its entry point (also its profiler label).
+struct PipelineEntry
+{
+    Pipeline *pipeline;
+    const char *entry;
+};
+
+// Builds / destroys every pipeline of a table (a phase owner's `*Pipelines` struct).
+inline void initPipelines(Device &dev, PipelineLayout &layout, const uint32_t *spirv, size_t spirvWords,
+                          const PipelineEntry *entries, size_t count)
+{
+    for (size_t i = 0; i < count; i++)
+        entries[i].pipeline->init(dev, layout, spirv, spirvWords, entries[i].entry, entries[i].entry);
+}
+template <size_t N>
+void initPipelines(Device &dev, PipelineLayout &layout, const uint32_t *spirv, size_t spirvWords,
+                   const std::array<PipelineEntry, N> &entries)
+{
+    initPipelines(dev, layout, spirv, spirvWords, entries.data(), N);
+}
+template <size_t N> void destroyPipelines(const std::array<PipelineEntry, N> &entries)
+{
+    for (const PipelineEntry &e : entries)
+        e.pipeline->destroy();
+}
 
 } // namespace avbdvk

@@ -1,22 +1,13 @@
-/*
- * Copyright (c) 2026 Chris Giles
- *
- * Permission to use, copy, modify, distribute and sell this software
- * and its documentation for any purpose is hereby granted without fee,
- * provided that the above copyright notice appear in all copies.
- * Chris Giles makes no representations about the suitability
- * of this software for any purpose.
- * It is provided "as is" without express or implied warranty.
- */
-
 #pragma once
 
 // Instance + physical/logical device setup for the Vulkan backend. Gives the engine
-// a context bound to a chosen GPU and one queue.
+// a context bound to a chosen GPU and one queue --
+//
 //
 // Deliberately minimal: one compute queue, validation layers gated by build config
-// or an env var, and the feature set the kernels need: bufferDeviceAddress, shaderInt64,
-// shaderBufferInt64Atomics, shaderBufferFloat32AtomicAdd, timelineSemaphore,
+// or an env var, and the feature set the migration plan's spike GPU (RTX 4070
+// SUPER, Vulkan 1.4) already reports true: bufferDeviceAddress, shaderInt64,
+// shaderBufferFloat32AtomicAdd (no 64-bit buffer atomics are required), timelineSemaphore,
 // subgroup size control.
 
 #include <vulkan/vulkan.h>
@@ -119,8 +110,25 @@ public:
 
     VkQueue computeQueue() const { return m_computeQueue; }
     uint32_t computeQueueFamily() const { return m_computeQueueFamily; }
+
+    // Side queues (null / ~0u when the device has none, and always on an adopted device). They
+    // let host reads run beside a step in flight instead of queueing behind it: the side
+    // compute queue for small dispatches and copies (a different family, preferably one without
+    // GRAPHICS, else a second queue of the main family), the copy queue a transfer-only family
+    // (the DMA engine). Work on them must touch only buffers the running step does not write,
+    // created with sharedSideQueues() so no ownership transfer is needed.
+    VkQueue sideComputeQueue() const { return m_sideQueue; }
+    uint32_t sideComputeFamily() const { return m_sideFamily; }
+    VkQueue copyQueue() const { return m_copyQueue; }
+    uint32_t copyFamily() const { return m_copyFamily; }
+    // The distinct queue families a VK_SHARING_MODE_CONCURRENT buffer must name to be used on
+    // the main and side queues; fewer than two means no concurrent sharing is needed.
+    const std::vector<uint32_t> &sharedFamilies() const { return m_sharedFamilies; }
     VkCommandPool commandPool() const { return m_commandPool; }
     VkPipelineCache pipelineCache() const { return m_pipelineCache; }
+    // Writes the pipeline cache to disk (also done at shutdown). Called after a world has built its
+    // pipelines so a killed first launch still keeps the ~20 s of compilation.
+    void savePipelineCache();
 
     // --- sdl_vk demo interop (docs/VK_DEMO_INTERFACE.md) -----------------------------
     // Compute and graphics share the single queue created above, so these are plain
@@ -148,7 +156,7 @@ public:
     PFN_vkCmdEndDebugUtilsLabelEXT cmdEndDebugLabel = nullptr;
     PFN_vkSetDebugUtilsObjectNameEXT setDebugObjectName = nullptr;
 
-    // --- External-memory interop hooks -----------------------------------------------
+    // --- Win32 interop hooks -----------------------
     // Both must be called before init(); both are no-ops by default,
     // so nothing above this comment changes behavior.
 
@@ -182,6 +190,8 @@ public:
     // Device limits/props the rest of the backend cares about.
     uint32_t subgroupSize() const { return m_subgroupSize; }
     float timestampPeriodNs() const { return m_timestampPeriodNs; }
+    // maxComputeSharedMemorySize: a pipeline whose workgroup memory exceeds it must not be created.
+    uint32_t maxSharedMemory() const { return m_maxSharedMemory; }
 
     // Prints the device-selection line to stderr during init(). Off by default; call
     // before init().
@@ -230,10 +240,17 @@ private:
     }
     VkQueue m_computeQueue = VK_NULL_HANDLE;
     uint32_t m_computeQueueFamily = ~0u;
+    VkQueue m_sideQueue = VK_NULL_HANDLE;
+    uint32_t m_sideFamily = ~0u;
+    VkQueue m_copyQueue = VK_NULL_HANDLE;
+    uint32_t m_copyFamily = ~0u;
+    std::vector<uint32_t> m_sharedFamilies;
     VkCommandPool m_commandPool = VK_NULL_HANDLE;
     VkPipelineCache m_pipelineCache = VK_NULL_HANDLE;
+    std::string m_pipelineCachePath; // empty = persistence off
 
     uint32_t m_subgroupSize = 32;
+    uint32_t m_maxSharedMemory = 16384; // Vulkan minimum until queried
     float m_timestampPeriodNs = 1.0f;
     bool m_validation = false;
     bool m_verbose = false;

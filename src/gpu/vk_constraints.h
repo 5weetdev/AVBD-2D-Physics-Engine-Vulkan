@@ -1,27 +1,17 @@
-/*
- * Copyright (c) 2026 Chris Giles
- *
- * Permission to use, copy, modify, distribute and sell this software
- * and its documentation for any purpose is hereby granted without fee,
- * provided that the above copyright notice appear in all copies.
- * Chris Giles makes no representations about the suitability
- * of this software for any purpose.
- * It is provided "as is" without express or implied warranty.
- */
-
 #pragma once
 
 // Vulkan host orchestration for shaders/constraints.slang: CSR entry emission over
 // manifolds + joints + springs, the (body<<32)|(type<<29)|index key sort, and the
 // batched Jones-Plassmann coloring loop.
 //
-// Like VkBroadphase/VkNarrowphase, this owns its own CommandList/HostRingBuffer. Since
-// M4 a build() is ONE submission: emit, sort and rows run on a device entry count, and
+// Like VkBroadphase/VkNarrowphase, this owns its own CommandList/HostRingBuffer. A
+// build() is ONE submission: emit, sort and rows run on a device entry count, and
 // the Jones-Plassmann rounds are recorded blind to a bound (last build's convergence
 // round + 2, at least 8) instead of a host loop that dispatches until the remaining
 // counter reads zero. A round past convergence is a no-op, so the colours are the
 // host loop's exactly; only a bound that proves too small costs another submission.
 
+#include <cmath>
 #include "vk_buffer.h"
 #include "vk_cmd.h"
 #include "vk_device.h"
@@ -35,7 +25,7 @@
 namespace avbdvk
 {
 
-// Colors are
+// The ceiling on colours -- colors are
 // held in a 128-bit mask (two uint64) in csJpRound, so this is a hard limit, not a
 // tunable.
 static const int AVBD_MAX_COLORS_VK = 128;
@@ -43,6 +33,7 @@ static const int AVBD_MAX_COLORS_VK = 128;
 struct ConstraintsPipelines
 {
     Pipeline resetColors, emitManifold, emitForce, rows, jpRound, colorKeys, colorRows;
+    Pipeline buildSmall; // csBuildSmall: the whole build in one workgroup (small worlds)
 
     void init(Device &dev, PipelineLayout &layout, const uint32_t *spirv, size_t spirvWords);
     void destroy();
@@ -107,11 +98,11 @@ public:
                const VkConstraintsJointRefs &joints, const VkConstraintsSpringRefs &springs, const Buffer &dynamicIdx,
                int dynamicCount, VkDeviceAddress dynamicCountAddr = 0);
 
-    // dynamicCountAddr (M4, here and below): 0 means `dynamicCount` is exact. Non-zero is
+    // dynamicCountAddr: 0 means `dynamicCount` is exact. Non-zero is
     // the device address of an int32 live count and `dynamicCount` is only its upper bound:
     // grids are sized by the bound, every kernel reads min(*addr, bound) and early-outs.
 
-    // build() in pieces (M4). record() zeroes the outputs, resets colours, emits the
+    // build() in pieces. record() zeroes the outputs, resets colours, emits the
     // entries and records the sort and the row ranges into `cmd`, with the entry count
     // kept on device. The caller must have grown `radix` for maxEntries (8-byte keys,
     // 4-byte values) BEFORE recording anything into `cmd` that uses it. finish() runs
@@ -123,6 +114,15 @@ public:
                 int dynamicCount, VkDeviceAddress dynamicCountAddr = 0);
     void finish();
     int entryCapacity() const { return maxEntries; }
+
+    // Small-world build (csBuildSmall, one workgroup, one dispatch): used when
+    // smallWorldEnabled() and the world fits. Produces the same CSR, colours, colour ranges,
+    // entry counter and per-round `remaining` slots as record() + recordColoring().
+    bool smallBuildEligible(int dynamicBound) const;
+    int recordSmall(CommandList &cmd, HostRingBuffer &ring, ConstraintsPipelines &pl,
+                    const VkConstraintsBodyRefs &bodies, const VkConstraintsManifoldRefs &manifolds,
+                    const VkConstraintsJointRefs &joints, const VkConstraintsSpringRefs &springs,
+                    const Buffer &dynamicIdx, int dynamicBound, VkDeviceAddress dynamicCountAddr, int blindRounds);
 
     // Jones-Plassmann rounds recorded without a readback between them: `count` rounds
     // starting at round `firstRound`, then the colour grouping. Returns rounds recorded.
@@ -216,8 +216,8 @@ public:
 
 private:
     Device *m_dev = nullptr;
-    HostRingBuffer ring;
-    CommandList cmd;
+    HostRingBuffer m_ring;
+    CommandList m_cmd;
 
     Buffer rawKeys, sortedKeys;
     Buffer rawIsA, sortedIsA;

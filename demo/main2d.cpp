@@ -22,7 +22,7 @@
 #include <vulkan/vulkan.h>
 
 #include "renderer2d.h"
-#include "scene_io2d.h"
+#include "scene2d_io.h"
 #include "scenes2d.h"
 #include "vk_util.h"
 #include "vk_world2d.h"
@@ -99,6 +99,50 @@ static float g_rainRate = 200.0f; // bodies per second
 static float g_rainCarry = 0.0f;
 static uint32_t g_spawnSeed = 1u;
 
+// Spawn colour (the Spawn panel's Colour foldout). Randomise is the default: each body takes a
+// hue walked golden-ratio along the spawn sequence, with the saturation and value below. The
+// hue spread narrows the walk around the base colour's hue (1.0 = the whole wheel, the
+// default). Randomise off: every spawned body gets the base colour exactly.
+static bool g_spawnColorRand = true;
+static float g_spawnColor[3] = {0.65f, 0.65f, 0.65f};
+static float g_spawnColorSpread = 1.0f;
+static float g_spawnColorSat = 0.6f;
+static float g_spawnColorVal = 0.92f;
+static uint32_t g_spawnColorSeq = 0; // the golden-ratio hue walk's position
+
+// Shape parameters (per type, the Spawn panel's Shape foldout). They always apply; the
+// Randomise foldout jitters them on top.
+
+// Box aspect: width = spawnSize * aspectW, height = spawnSize * aspectH. When chained
+// (g_boxAspectChain), editing one copies to the other (1:1 lock).
+static float g_boxAspectW = 1.0f;
+static float g_boxAspectH = 1.0f;
+static bool g_boxAspectChain = true;      // default: chained (square)
+static float g_capsuleLengthRatio = 2.8f; // capsule length as a multiple of the spawn size
+static int g_polySides = 6;
+static float g_polyRound = 0.0f; // polygon rounding radius (m)
+
+// Randomisation toggles and ranges (the Spawn panel's Randomise foldout).
+struct SpawnRandom
+{
+    bool enabled = false; // master toggle
+    float sizeMin = 0.8f; // multiplier on g_spawnSize
+    float sizeMax = 1.2f;
+    float frictionMin = 0.5f; // friction jitter, absolute (the Friction slider's range is 0..1.5)
+    float frictionMax = 0.5f;
+    float aspectMin = 1.0f; // box aspect jitter: width scales by a, height by 1 / a
+    float aspectMax = 1.0f;
+    float angleMin = 0.0f; // radians
+    float angleMax = 0.0f;
+    float capsuleMin = 0.6f; // multiplier on g_capsuleLengthRatio
+    float capsuleMax = 1.0f;
+    int sidesMin = 3;
+    int sidesMax = 8;
+    float roundChance = 0.0f; // probability a polygon gets rounded
+    float roundRadius = 0.08f;
+};
+static SpawnRandom g_spawnRand;
+
 // Grab (the Grab panel). The radius applies when "grab connected bodies" is on.
 static bool g_grabConnected = true;
 static bool g_grabFollowJoints = true;
@@ -118,7 +162,9 @@ static VkWorld2D::GrabOptions grabOptions()
 }
 
 // Overlays.
-static int g_colorMode = 0; // 0 body colour, 1 sleep state, 2 speed, 3 graph colour
+static constexpr int kColorLoad = 4; // bodies coloured by contact load (a soil overlay)
+static constexpr int kColorPack = 5; // bodies coloured by local packing fraction (a soil overlay)
+static int g_colorMode = 0;          // 0 body colour, 1 sleep, 2 speed, 3 graph colour, 4 load, 5 packing
 struct EventMark
 {
     Vec2 p;
@@ -131,6 +177,35 @@ static bool g_showContacts = false;
 static bool g_showNormals = false;
 static bool g_showJoints = false;
 static bool g_showGrid = false;
+
+// Soil overlays (inside the "Debug overlays" foldout). Every one is fully off when unchecked:
+// no contact pull, no aggregation loop, no instances. The load colour mode shares the contact
+// pull with the contact markers.
+static bool g_showChains = false;   // force chains: a line per contact, thick with the load
+static int g_maxChains = 60000;     // cap on the chain lines drawn per frame (performance)
+static bool g_showStress = false;   // grid stress field under the bodies
+static bool g_showVelField = false; // grid velocity arrows
+static float g_chainScale = 200.0f; // normal force drawn at the full chain width (N)
+static float g_loadRef = 1.0f;      // bias on the auto-tracked load/weight the ramp maps to red
+static float g_loadAuto = 1.0f;     // smoothed max of load/weight across the scene
+static float g_stressCell = 1.0f;   // field cell size (m), shared by the fields and packing
+static float g_stressRef = 1000.0f; // cell line load drawn at the top of the ramp (N/m)
+static float g_velScale = 4.0f;     // mean cell speed drawn as a one-cell arrow (m/s)
+static float g_packRef = 0.8f;      // packing fraction drawn at the top of the ramp
+
+// The step's extra read-backs (velocities, sleep flags, graph colours) serve the colour modes
+// and the velocity field; with both off they cost nothing.
+static bool extrasNeeded()
+{
+    return g_colorMode != 0 || g_showVelField;
+}
+
+// The overlays that consume the contact pull (the load colour mode among them); the world
+// latches the contact-debug snapshot on when this is ever true.
+static bool contactOverlayOn()
+{
+    return g_showContacts || g_showNormals || g_showChains || g_showStress || g_colorMode == kColorLoad;
+}
 
 // Step-time history for the plot.
 static constexpr int kHistory = 180;
@@ -542,37 +617,78 @@ static float rnd()
     return (float)((g_spawnSeed >> 8) & 0xFFFF) / 65535.0f;
 }
 
-static uint32_t randomShirt()
+// The colour of one spawned body (see the g_spawnColor* block above). Ragdolls take it as the
+// shirt colour, every other object as the whole body.
+static uint32_t spawnBodyColor()
 {
-    return scenes::rgb8(0.35f + 0.65f * rnd(), 0.3f + 0.5f * rnd(), 0.3f + 0.6f * rnd());
+    if (!g_spawnColorRand)
+        return packRGB(g_spawnColor[0], g_spawnColor[1], g_spawnColor[2]);
+    float h = 0.0f, s = 0.0f, v = 0.0f;
+    ImGui::ColorConvertRGBtoHSV(g_spawnColor[0], g_spawnColor[1], g_spawnColor[2], h, s, v);
+    if (g_spawnColorSpread >= 1.0f)
+        h = 0.61803398875f * (float)(g_spawnColorSeq++);
+    else
+        h += (rnd() - 0.5f) * g_spawnColorSpread;
+    return hsv(h, g_spawnColorSat, g_spawnColorVal);
 }
 
-// Shape and jittered size of one spawned object of demo kind `kind` (not a ragdoll).
+// Shape and size of one spawned object of demo kind `kind` (not a ragdoll). The Shape foldout's
+// parameters always apply; when the Randomise foldout is enabled they are jittered within its
+// ranges (friction too), and when it is not the legacy ±20% size jitter runs and friction comes
+// from the Friction slider. The colour comes from the Colour foldout (spawnBodyColor).
 static void setSpawnShape(SpawnDesc2D &o, int kind)
 {
-    const float j = 0.8f + 0.4f * rnd();
-    const float sz = g_spawnSize * j;
+    const bool r = g_spawnRand.enabled;
+    const float sizeJ =
+        r ? (g_spawnRand.sizeMin + (g_spawnRand.sizeMax - g_spawnRand.sizeMin) * rnd()) : (0.8f + 0.4f * rnd());
+    const float sz = g_spawnSize * sizeJ;
     switch (kind)
     {
-    case 1:
+    case 1: // Disc
         o.shape = SHAPE2D_CIRCLE;
         o.size = Vec2(0.5f * sz, 0.0f);
         break;
-    case 3:
+    case 3: // Capsule
+    {
+        float lr = g_capsuleLengthRatio;
+        if (r)
+            lr *= g_spawnRand.capsuleMin + (g_spawnRand.capsuleMax - g_spawnRand.capsuleMin) * rnd();
         o.shape = SHAPE2D_CAPSULE;
-        o.size = Vec2(sz * (1.4f + 0.8f * rnd()), 0.5f * sz);
-        break;
-    case 4:
-        o.shape = SHAPE2D_POLYGON;
-        o.size = Vec2(0.55f * sz, 0.0f);
-        o.sides = 3 + (int)(rnd() * 5.99f);
-        o.radius = rnd() < 0.3f ? 0.08f * sz : 0.0f;
-        break;
-    default:
-        o.shape = SHAPE2D_BOX;
-        o.size = Vec2(sz, g_spawnSize * (0.8f + 0.4f * rnd()));
+        o.size = Vec2(sz * lr, 0.5f * sz);
         break;
     }
+    case 4: // Polygon
+    {
+        int sides = g_polySides;
+        if (r)
+            sides =
+                g_spawnRand.sidesMin + (int)(rnd() * (float)(g_spawnRand.sidesMax - g_spawnRand.sidesMin + 1) * 0.999f);
+        float round = g_polyRound;
+        if (r && g_spawnRand.roundChance > 0.0f && rnd() < g_spawnRand.roundChance)
+            round = g_spawnRand.roundRadius;
+        o.shape = SHAPE2D_POLYGON;
+        o.size = Vec2(0.55f * sz, 0.0f);
+        o.sides = sides;
+        o.radius = round;
+        break;
+    }
+    default: // Box
+    {
+        float w = g_boxAspectW, h = g_boxAspectH;
+        if (r)
+        {
+            const float aj = g_spawnRand.aspectMin + (g_spawnRand.aspectMax - g_spawnRand.aspectMin) * rnd();
+            w *= aj;
+            h *= 1.0f / aj;
+        }
+        o.shape = SHAPE2D_BOX;
+        o.size = Vec2(sz * w, sz * h);
+        break;
+    }
+    }
+    o.friction =
+        r ? (g_spawnRand.frictionMin + (g_spawnRand.frictionMax - g_spawnRand.frictionMin) * rnd()) : g_spawnFriction;
+    o.color = spawnBodyColor();
 }
 
 // `count` ragdolls in a loose grid whose bottom row stands at `center`.
@@ -591,12 +707,39 @@ static void spawnRagdolls(Vec2 center, int count, bool aPose = false)
         const Vec2 at(((float)gx - 0.5f * (float)(cols - 1)) * dx, (float)gy * dy);
         const float brk = g_ragdollBreak > 0.0f ? g_ragdollBreak : kStiffInf;
         if (aPose)
-            scenes::addPoseRagdoll(frag, at, scale, brk, randomShirt());
+            scenes::addPoseRagdoll(frag, at, scale, brk, spawnBodyColor());
         else
-            scenes::addRagdoll(frag, at, scale, brk, randomShirt());
+            scenes::addRagdoll(frag, at, scale, brk, spawnBodyColor());
     }
     g_world.spawnScene(frag, Vec2(center.x, center.y - 0.8f * scale));
     extendColors();
+}
+
+// Grid spacing that keeps even the largest possible spawn of `kind` (with the current shape
+// parameters and randomisation ranges) from overlapping its neighbours.
+static float spawnSpacing(int kind)
+{
+    const bool r = g_spawnRand.enabled;
+    float s = 1.25f * g_spawnSize; // the legacy default; covers the ±20% size jitter
+    if (kind == 0)
+    {
+        float w = g_boxAspectW, h = g_boxAspectH;
+        if (r)
+        {
+            const float aj = std::max(g_spawnRand.aspectMax, g_spawnRand.aspectMin);
+            w *= aj;
+            h *= aj; // the other axis scales by 1 / aj, so this bounds both
+        }
+        s = std::max(s, 1.2f * g_spawnSize * std::max(w, h));
+    }
+    else if (kind == 3)
+    {
+        float lr = g_capsuleLengthRatio;
+        if (r)
+            lr *= std::max(g_spawnRand.capsuleMax, g_spawnRand.capsuleMin);
+        s = std::max(s, 1.2f * g_spawnSize * lr);
+    }
+    return s;
 }
 
 // `count` objects of the selected kind in a loose grid centred on `center`, all moving at `vel`.
@@ -612,16 +755,17 @@ static void spawnCluster(Vec2 center, int kind, int count, Vec2 vel)
     count = std::min(count, 200000);
     std::vector<SpawnDesc2D> d((size_t)count);
     const int cols = std::max(1, (int)std::ceil(std::sqrt((double)count)));
-    const float spacing = g_spawnSize * (kind == 3 ? 2.8f : 1.25f);
+    const float spacing = spawnSpacing(kind);
+    const bool r = g_spawnRand.enabled;
     for (int k = 0; k < count; k++)
     {
         SpawnDesc2D &o = d[(size_t)k];
         const int gx = k % cols, gy = k / cols;
         setSpawnShape(o, kind);
         o.pos = Vec2(center.x + ((float)gx - 0.5f * (float)(cols - 1)) * spacing, center.y + (float)gy * spacing);
-        o.angle = count == 1 ? 0.0f : kPi * rnd();
+        o.angle = r ? (g_spawnRand.angleMin + (g_spawnRand.angleMax - g_spawnRand.angleMin) * rnd())
+                    : (count == 1 ? 0.0f : kPi * rnd());
         o.density = g_spawnDensity;
-        o.friction = g_spawnFriction;
         o.vel = vel;
     }
     g_world.spawn(d.data(), count);
@@ -643,9 +787,9 @@ static void spawnRain(int count)
             const Vec2 at(v.x0 + (v.x1 - v.x0) * rnd(), v.y1 + 1.0f + 4.0f * rnd());
             const float brk = g_ragdollBreak > 0.0f ? g_ragdollBreak : kStiffInf;
             if (g_spawnKind == 5)
-                scenes::addPoseRagdoll(frag, at, scale, brk, randomShirt());
+                scenes::addPoseRagdoll(frag, at, scale, brk, spawnBodyColor());
             else
-                scenes::addRagdoll(frag, at, scale, brk, randomShirt());
+                scenes::addRagdoll(frag, at, scale, brk, spawnBodyColor());
         }
         g_world.spawnScene(frag, Vec2());
         extendColors();
@@ -657,9 +801,9 @@ static void spawnRain(int count)
         SpawnDesc2D &o = d[(size_t)k];
         setSpawnShape(o, g_spawnKind);
         o.pos = Vec2(v.x0 + (v.x1 - v.x0) * rnd(), v.y1 + 1.0f + 2.0f * rnd());
-        o.angle = kPi * rnd();
+        o.angle = g_spawnRand.enabled ? g_spawnRand.angleMin + (g_spawnRand.angleMax - g_spawnRand.angleMin) * rnd()
+                                      : kPi * rnd();
         o.density = g_spawnDensity;
-        o.friction = g_spawnFriction;
     }
     g_world.spawn(d.data(), count);
     extendColors();
@@ -706,9 +850,9 @@ static bool inView(const View &v, Vec2 p, float margin)
 }
 
 // One body as renderer primitives: boxes and centred circles are one instance, an offset
-// circle is a circle moved to its centre, a capsule one capsule instance, a polygon a fan of
-// triangles (a rounded one with its vertices pushed out along the bisectors, so the corners
-// are sharp but the size is right), segments and chains a line.
+// circle is a circle moved to its centre, a capsule one capsule instance, a polygon one
+// rounded-polygon instance (the fragment shader's SDF draws the true boundary: straight
+// edges and arcs at the rounded corners), segments and chains a line.
 static void addShape(std::vector<Instance2D> &out, const Scene2D &s, int shape, Vec2 p, float a, uint32_t rgba,
                      uint32_t flags)
 {
@@ -752,32 +896,17 @@ static void addShape(std::vector<Instance2D> &out, const Scene2D &s, int shape, 
         break;
     }
     case SHAPE2D_POLYGON:
-    {
-        Vec2 q[kMaxPolygonVertices];
-        const Vec2 *nr = s.norms.data() + s.shVOff[k];
+        // The vertices are shape-local about the centroid and CCW; hx/hy carry the AABB
+        // half extents, which the scene already grew by the rounding radius.
+        o.shape = kInstPolygon;
+        o.radius = r;
+        o.count = (uint32_t)n;
         for (int j = 0; j < n; j++)
         {
-            q[j] = v[j];
-            if (r > 0.0f)
-            {
-                const Vec2 mid = nr[(j + n - 1) % n] + nr[j];
-                q[j] = v[j] + mid * (r * 2.0f / lengthSq(mid)); // the offset lines' intersection
-            }
+            o.v[2 * (size_t)j] = v[j].x;
+            o.v[2 * j + 1] = v[j].y;
         }
-        o.shape = kInstTriangle;
-        for (int j = 1; j + 1 < n; j++)
-        {
-            o.hx = q[0].x;
-            o.hy = q[0].y;
-            o.ex[0] = q[j].x;
-            o.ex[1] = q[j].y;
-            o.ex[2] = q[j + 1].x;
-            o.ex[3] = q[j + 1].y;
-            o.flags = flags | 0x200u | (j == 1 ? 0x100u : 0u) | (j + 2 == n ? 0x400u : 0u);
-            out.push_back(o);
-        }
-        return;
-    }
+        break;
     case SHAPE2D_SEGMENT:
     case SHAPE2D_CHAIN:
     {
@@ -860,6 +989,201 @@ static void collectEventMarks()
             add(p, 3);
 }
 
+// --- Soil overlays ------------------------------------------------------------------------
+static constexpr int kFieldCellCap = 20000; // roughly the most field cells drawn per frame
+
+// packRGB with alpha (a in 0..1).
+static uint32_t packRGBA(float r, float g, float b, float a)
+{
+    auto q = [](float v) { return (uint32_t)(std::min(std::max(v, 0.0f), 1.0f) * 255.0f + 0.5f); };
+    return q(r) | (q(g) << 8) | (q(b) << 16) | (q(a) << 24);
+}
+
+// Heat ramp shared by the soil overlays: blue -> green -> yellow -> red.
+static uint32_t heatRGBA(float t, float a)
+{
+    t = std::min(std::max(t, 0.0f), 1.0f);
+    static const float kStops[4][3] = {
+        {0.10f, 0.25f, 0.85f}, {0.20f, 0.80f, 0.40f}, {1.0f, 0.90f, 0.20f}, {0.90f, 0.15f, 0.10f}};
+    const float x = t * 3.0f;
+    const int k = std::min((int)x, 2);
+    const float f = x - (float)k;
+    return packRGBA(kStops[k][0] + (kStops[k + 1][0] - kStops[k][0]) * f,
+                    kStops[k][1] + (kStops[k + 1][1] - kStops[k][1]) * f,
+                    kStops[k][2] + (kStops[k + 1][2] - kStops[k][2]) * f, a);
+}
+
+// Cell size for the field overlays: the user's, doubled while the view spans too many cells.
+static float fieldCellSize(const View &v)
+{
+    float cs = std::max(g_stressCell, 0.05f);
+    int nx = (int)std::ceil((v.x1 - v.x0) / cs), ny = (int)std::ceil((v.y1 - v.y0) / cs);
+    while (nx > 0 && ny > 0 && nx * ny > kFieldCellCap)
+    {
+        cs *= 2.0f;
+        nx = (int)std::ceil((v.x1 - v.x0) / cs);
+        ny = (int)std::ceil((v.y1 - v.y0) / cs);
+    }
+    return cs;
+}
+
+// Cell index in a view-local grid whose cells snap to world multiples of `cs` (so panning does
+// not shift the field), or -1 when outside.
+static int fieldCell(const View &v, float cs, int nx, int ny, Vec2 p)
+{
+    const int ix = (int)std::floor(p.x / cs) - (int)std::floor(v.x0 / cs);
+    const int iy = (int)std::floor(p.y / cs) - (int)std::floor(v.y0 / cs);
+    if (ix < 0 || ix >= nx || iy < 0 || iy >= ny)
+        return -1;
+    return iy * nx + ix;
+}
+
+// Stress field: the normal force of every contact in view summed into grid cells, drawn as
+// translucent heat cells. Pushed before the bodies, so it sits under them.
+static void pushStressField(std::vector<Instance2D> &out, const View &v)
+{
+    const float cs = fieldCellSize(v);
+    const int x0 = (int)std::floor(v.x0 / cs), y0 = (int)std::floor(v.y0 / cs);
+    const int nx = (int)std::ceil(v.x1 / cs) - x0, ny = (int)std::ceil(v.y1 / cs) - y0;
+    if (nx <= 0 || ny <= 0 || nx * ny > 2 * kFieldCellCap)
+        return;
+    static std::vector<float> cell; // line load per cell (N/m)
+    cell.assign((size_t)nx * ny, 0.0f);
+    for (const ContactDebug2D &c : g_contacts)
+    {
+        const int k = fieldCell(v, cs, nx, ny, c.p);
+        if (k >= 0)
+            cell[(size_t)k] += c.force;
+    }
+    const float invRef = 1.0f / std::log2(1.0f + std::max(g_stressRef, 1.0f));
+    for (int iy = 0; iy < ny; iy++)
+        for (int ix = 0; ix < nx; ix++)
+        {
+            const float f = cell[(size_t)iy * nx + ix];
+            if (f <= 0.0f)
+                continue;
+            const float t = std::log2(1.0f + f / cs) * invRef;
+            Instance2D o;
+            o.x = ((float)(x0 + ix) + 0.5f) * cs;
+            o.y = ((float)(y0 + iy) + 0.5f) * cs;
+            o.angle = 0.0f;
+            o.hx = o.hy = 0.5f * cs;
+            o.rgba = heatRGBA(t, 0.12f + 0.68f * std::min(t, 1.0f));
+            o.shape = kInstBox;
+            o.flags = 0;
+            out.push_back(o);
+        }
+}
+
+// Velocity field: the mean velocity of the awake dynamic bodies in each cell, drawn as an
+// arrow over the bodies.
+static void pushVelField(std::vector<Instance2D> &out, const View &v, float unit)
+{
+    const Scene2D &s = g_world.scene();
+    const int n = g_world.bodyCount();
+    const Vec2 *pos = g_world.positions();
+    const Vec2 *vel = g_world.velocities();
+    const uint8_t *awake = g_world.awakeFlags();
+    const float cs = fieldCellSize(v);
+    const int x0 = (int)std::floor(v.x0 / cs), y0 = (int)std::floor(v.y0 / cs);
+    const int nx = (int)std::ceil(v.x1 / cs) - x0, ny = (int)std::ceil(v.y1 / cs) - y0;
+    if (nx <= 0 || ny <= 0 || nx * ny > 2 * kFieldCellCap)
+        return;
+    static std::vector<Vec2> sum;
+    static std::vector<int> cnt;
+    sum.assign((size_t)nx * ny, Vec2());
+    cnt.assign((size_t)nx * ny, 0);
+    for (int i = 0; i < n; i++)
+    {
+        if (s.mass[i] <= 0.0f || !awake[i])
+            continue;
+        const int k = fieldCell(v, cs, nx, ny, pos[i]);
+        if (k >= 0)
+        {
+            sum[(size_t)k] = sum[(size_t)k] + vel[i];
+            cnt[(size_t)k]++;
+        }
+    }
+    const uint32_t col = packRGBA(0.95f, 0.95f, 1.0f, 0.9f);
+    for (int iy = 0; iy < ny; iy++)
+        for (int ix = 0; ix < nx; ix++)
+        {
+            const size_t k = (size_t)iy * nx + ix;
+            if (cnt[k] == 0)
+                continue;
+            const Vec2 mv = sum[k] * (1.0f / (float)cnt[k]);
+            const float speed = length(mv);
+            if (speed < 0.05f)
+                continue;
+            const Vec2 c(((float)(x0 + ix) + 0.5f) * cs, ((float)(y0 + iy) + 0.5f) * cs);
+            const Vec2 dir = mv * (1.0f / speed);
+            const float t = std::min(speed / std::max(g_velScale, 0.1f), 1.0f);
+            const Vec2 half = dir * (0.5f * cs * std::max(t, 0.25f));
+            addLine(out, c - half, c + half, unit * (1.0f + 2.5f * t), col);
+            addDot(out, c + half, unit * 2.0f, col);
+        }
+}
+
+// Force chains: a line between the centres of each contacting pair, thicker and brighter with
+// the normal force -- the classic granular force-chain picture.
+static void pushChains(std::vector<Instance2D> &out, const View &v, float unit)
+{
+    const Vec2 *pos = g_world.positions();
+    int drawn = 0;
+    for (const ContactDebug2D &c : g_contacts)
+    {
+        if (drawn >= g_maxChains)
+            break;
+        if (c.force < 1e-4f || !inView(v, c.p, 1.0f))
+            continue;
+        const float f = std::min(c.force / std::max(g_chainScale, 1e-3f), 1.0f);
+        addLine(out, pos[c.bodyA], pos[c.bodyB], unit * (1.0f + 6.0f * f),
+                packRGBA(1.0f, 0.85f - 0.55f * f, 0.15f * f, 0.25f + 0.75f * f));
+        drawn++;
+    }
+}
+
+// Area of body i's shapes (m^2) -- the packing overlay's per-body contribution. Rounded
+// polygons use their sharp hull (the rounding area is a small correction at these sizes).
+static float bodyArea(const Scene2D &s, int i)
+{
+    float a = 0.0f;
+    const int f = s.shapeFirst[(size_t)i];
+    for (int k = f; k < f + s.shapeCount[(size_t)i]; k++)
+    {
+        const Vec2 h = s.shHalf[(size_t)k];
+        const float r = s.shRad[(size_t)k];
+        const int n = s.shVCnt[(size_t)k];
+        const Vec2 *v = s.verts.data() + s.shVOff[(size_t)k];
+        switch (s.shType[(size_t)k])
+        {
+        case SHAPE2D_BOX:
+            a += 4.0f * h.x * h.y;
+            break;
+        case SHAPE2D_CIRCLE:
+            a += kPi * r * r;
+            break;
+        case SHAPE2D_CAPSULE:
+            a += length(v[1] - v[0]) * (2.0f * r) + kPi * r * r;
+            break;
+        case SHAPE2D_POLYGON:
+        {
+            float shoelace = 0.0f;
+            for (int j = 0; j < n; j++)
+            {
+                const Vec2 &p = v[j], &q = v[(j + 1) % n];
+                shoelace += p.x * q.y - q.x * p.y;
+            }
+            a += std::fabs(shoelace) * 0.5f;
+            break;
+        }
+        default: // segments and chains have no area
+            break;
+        }
+    }
+    return a;
+}
+
 static void buildInstances(std::vector<Instance2D> &out)
 {
     const Scene2D &s = g_world.scene();
@@ -871,7 +1195,71 @@ static void buildInstances(std::vector<Instance2D> &out)
     const uint8_t *awake = g_world.awakeFlags();
     const int *gcol = g_world.graphColors();
     const View v = viewRect();
+    const float unit = g_camHeight * 0.001f; // one overlay "pixel", roughly
     out.clear();
+
+    // One contact pull serves every contact-consuming overlay (and the load colour mode); it
+    // happens once per step, and nothing here runs while every overlay is off.
+    if (contactOverlayOn() && g_contactsStale)
+    {
+        g_world.downloadContacts(g_contacts);
+        g_contactsStale = false;
+    }
+
+    // Load colour mode: contact load per body as a multiple of its own weight. The reference
+    // the ramp maps to full red self-tracks the scene's peak (smoothed), biased by the slider.
+    std::vector<float> load;
+    float loadRef = 1.0f;
+    if (g_colorMode == kColorLoad)
+    {
+        load.assign((size_t)n, 0.0f);
+        for (const ContactDebug2D &c : g_contacts)
+        {
+            if (c.bodyA >= 0 && c.bodyA < n)
+                load[(size_t)c.bodyA] += c.force;
+            if (c.bodyB >= 0 && c.bodyB < n)
+                load[(size_t)c.bodyB] += c.force;
+        }
+        const float gy = std::max(std::fabs(g_world.params().gravity.y), 0.1f);
+        float maxNorm = 0.0f;
+        for (int i = 0; i < n; i++)
+            if (s.mass[i] > 0.0f)
+                maxNorm = std::max(maxNorm, load[(size_t)i] / std::max(s.mass[i] * gy, 0.1f));
+        g_loadAuto = std::max(g_loadAuto + 0.05f * (maxNorm - g_loadAuto), 0.25f);
+        loadRef = std::log2(1.0f + g_loadAuto * std::max(g_loadRef, 0.05f));
+    }
+
+    // Packing colour mode: the local packing fraction of the granular assembly (statics
+    // excluded) on the field cell grid -- the summed body area in a cell over its area. A
+    // body is coloured by the packing fraction of the cell it sits in.
+    std::vector<float> packPhi; // packing fraction per cell
+    float pcs = 1.0f;
+    int pnx = 0, pny = 0, px0 = 0, py0 = 0;
+    if (g_colorMode == kColorPack)
+    {
+        pcs = fieldCellSize(v);
+        px0 = (int)std::floor(v.x0 / pcs) - 1; // one cell of margin, so edge bodies resolve
+        py0 = (int)std::floor(v.y0 / pcs) - 1;
+        pnx = (int)std::ceil(v.x1 / pcs) - px0 + 1;
+        pny = (int)std::ceil(v.y1 / pcs) - py0 + 1;
+        if (pnx > 0 && pny > 0 && pnx * pny <= 2 * kFieldCellCap)
+        {
+            packPhi.assign((size_t)pnx * pny, 0.0f);
+            for (int i = 0; i < n; i++)
+            {
+                if (s.mass[i] <= 0.0f)
+                    continue;
+                const int ix = (int)std::floor(pos[i].x / pcs) - px0, iy = (int)std::floor(pos[i].y / pcs) - py0;
+                if (ix >= 0 && ix < pnx && iy >= 0 && iy < pny)
+                    packPhi[(size_t)iy * pnx + ix] += bodyArea(s, i) / (pcs * pcs);
+            }
+        }
+        else
+            pnx = pny = 0;
+    }
+
+    if (g_showStress)
+        pushStressField(out, v); // field cells first, so they render under the bodies
 
     for (int i = 0; i < n; i++)
     {
@@ -890,13 +1278,26 @@ static void buildInstances(std::vector<Instance2D> &out)
             }
             else if (g_colorMode == 3)
                 rgba = hsv(0.0833f * (float)(gcol[i] & 63), 0.65f, 0.95f);
+            else if (g_colorMode == kColorLoad)
+            {
+                const float norm =
+                    load[(size_t)i] / std::max(s.mass[i] * std::max(std::fabs(g_world.params().gravity.y), 0.1f), 0.1f);
+                rgba = heatRGBA(std::log2(1.0f + norm) / loadRef, 1.0f);
+            }
+            else if (g_colorMode == kColorPack)
+            {
+                const int ix = (int)std::floor(pos[i].x / pcs) - px0, iy = (int)std::floor(pos[i].y / pcs) - py0;
+                if (ix >= 0 && ix < pnx && iy >= 0 && iy < pny)
+                {
+                    const float phi = packPhi[(size_t)iy * pnx + ix];
+                    rgba = heatRGBA(phi / std::max(g_packRef, 0.05f), 1.0f);
+                }
+            }
         }
         else if (extras)
             rgba = kStaticColor;
         addBody(out, s, i, pos[i], ang[i], rgba, g_world.isGrabbed(i) ? 1u : 0u);
     }
-
-    const float unit = g_camHeight * 0.001f; // one overlay "pixel", roughly
 
     if (g_showGrid)
     {
@@ -941,13 +1342,11 @@ static void buildInstances(std::vector<Instance2D> &out)
                 addDot(out, m.p, unit * (3.0f + 6.0f * (float)m.life / (float)kEventMarkLife), kinds[m.kind]);
     }
 
+    if (g_showChains)
+        pushChains(out, v, unit);
+
     if (g_showContacts || g_showNormals)
     {
-        if (g_contactsStale)
-        {
-            g_world.downloadContacts(g_contacts);
-            g_contactsStale = false;
-        }
         int drawn = 0;
         for (const ContactDebug2D &c : g_contacts)
         {
@@ -966,6 +1365,9 @@ static void buildInstances(std::vector<Instance2D> &out)
             drawn++;
         }
     }
+
+    if (g_showVelField)
+        pushVelField(out, v, unit);
 }
 
 static bool posesFinite()
@@ -1001,7 +1403,10 @@ static void overlayToggle(const char *label, int mode, const char *help)
 {
     bool on = g_colorMode == mode;
     if (ImGui::Checkbox(label, &on))
+    {
         g_colorMode = on ? mode : 0;
+        g_contactsStale = true; // a fresh contact pull if the new mode needs it while paused
+    }
     tip(help);
 }
 
@@ -1155,10 +1560,124 @@ static void drawUI()
     {
         const char *kinds[] = {"Box", "Disc", "Ragdoll", "Capsule", "Polygon", "Ragdoll (A pose)"};
         ImGui::Combo("Object", &g_spawnKind, kinds, 6);
-        ImGui::SliderFloat("Spawn size", &g_spawnSize, 0.1f, 4.0f);
+        ImGui::SliderFloat("Size", &g_spawnSize, 0.1f, 4.0f);
         ImGui::SliderFloat("Density", &g_spawnDensity, 0.1f, 20.0f);
         ImGui::SliderFloat("Friction", &g_spawnFriction, 0.0f, 1.5f);
-        if (g_spawnKind == 2 || g_spawnKind == 5)
+        const bool ragdoll = g_spawnKind == 2 || g_spawnKind == 5;
+
+        if (!ragdoll && ImGui::CollapsingHeader("Shape"))
+        {
+            if (g_spawnKind == 0) // Box: width and height ratios, chained 1:1 by default
+            {
+                if (ImGui::SliderFloat("Width ratio", &g_boxAspectW, 0.1f, 5.0f) && g_boxAspectChain)
+                    g_boxAspectH = g_boxAspectW;
+                if (ImGui::SliderFloat("Height ratio", &g_boxAspectH, 0.1f, 5.0f) && g_boxAspectChain)
+                    g_boxAspectW = g_boxAspectH;
+                if (ImGui::Checkbox("Chain 1:1", &g_boxAspectChain) && g_boxAspectChain)
+                    g_boxAspectH = g_boxAspectW;
+                tip("When on, width and height stay equal (square). Turn off for rectangles.");
+            }
+            else if (g_spawnKind == 3) // Capsule
+            {
+                ImGui::SliderFloat("Length ratio", &g_capsuleLengthRatio, 0.5f, 8.0f);
+                tip("Capsule length as a multiple of the size; the width is half the size.");
+            }
+            else if (g_spawnKind == 4) // Polygon
+            {
+                ImGui::SliderInt("Sides", &g_polySides, 3, 8);
+                ImGui::SliderFloat("Rounding", &g_polyRound, 0.0f, 0.2f, "%.3f");
+                tip("Rounds the polygon's corners by this many metres (0 = sharp).");
+            }
+            // Disc: a disc has no shape parameters.
+            if (ImGui::Button("Reset##shape"))
+            {
+                g_boxAspectW = g_boxAspectH = 1.0f;
+                g_boxAspectChain = true;
+                g_capsuleLengthRatio = 2.8f;
+                g_polySides = 6;
+                g_polyRound = 0.0f;
+            }
+        }
+
+        if (!ragdoll && ImGui::CollapsingHeader("Randomise"))
+        {
+            ImGui::Checkbox("Enable randomisation", &g_spawnRand.enabled);
+            if (g_spawnRand.enabled)
+            {
+                ImGui::DragFloatRange2("Size jitter", &g_spawnRand.sizeMin, &g_spawnRand.sizeMax, 0.01f, 0.05f, 3.0f);
+                if (g_spawnRand.sizeMin > g_spawnRand.sizeMax)
+                    std::swap(g_spawnRand.sizeMin, g_spawnRand.sizeMax);
+                ImGui::DragFloatRange2("Friction##rand", &g_spawnRand.frictionMin, &g_spawnRand.frictionMax, 0.01f,
+                                       0.0f, 1.5f);
+                if (g_spawnRand.frictionMin > g_spawnRand.frictionMax)
+                    std::swap(g_spawnRand.frictionMin, g_spawnRand.frictionMax);
+                float degMin = g_spawnRand.angleMin * (180.0f / kPi);
+                float degMax = g_spawnRand.angleMax * (180.0f / kPi);
+                if (ImGui::DragFloatRange2("Rotation", &degMin, &degMax, 1.0f, 0.0f, 180.0f, "%.0f deg"))
+                {
+                    g_spawnRand.angleMin = degMin * (kPi / 180.0f);
+                    g_spawnRand.angleMax = degMax * (kPi / 180.0f);
+                }
+                if (g_spawnRand.angleMin > g_spawnRand.angleMax)
+                    std::swap(g_spawnRand.angleMin, g_spawnRand.angleMax);
+                if (g_spawnKind == 0)
+                {
+                    ImGui::DragFloatRange2("Aspect jitter", &g_spawnRand.aspectMin, &g_spawnRand.aspectMax, 0.01f, 0.1f,
+                                           5.0f);
+                    if (g_spawnRand.aspectMin > g_spawnRand.aspectMax)
+                        std::swap(g_spawnRand.aspectMin, g_spawnRand.aspectMax);
+                }
+                else if (g_spawnKind == 3)
+                {
+                    ImGui::DragFloatRange2("Length jitter", &g_spawnRand.capsuleMin, &g_spawnRand.capsuleMax, 0.01f,
+                                           0.05f, 2.0f);
+                    if (g_spawnRand.capsuleMin > g_spawnRand.capsuleMax)
+                        std::swap(g_spawnRand.capsuleMin, g_spawnRand.capsuleMax);
+                }
+                else if (g_spawnKind == 4)
+                {
+                    ImGui::DragIntRange2("Sides range", &g_spawnRand.sidesMin, &g_spawnRand.sidesMax);
+                    g_spawnRand.sidesMin = std::clamp(g_spawnRand.sidesMin, 3, 8);
+                    g_spawnRand.sidesMax = std::clamp(g_spawnRand.sidesMax, 3, 8);
+                    ImGui::SliderFloat("Round chance", &g_spawnRand.roundChance, 0.0f, 1.0f, "%.0f %%");
+                    if (g_spawnRand.roundChance > 0.0f)
+                        ImGui::SliderFloat("Round radius", &g_spawnRand.roundRadius, 0.0f, 0.2f, "%.3f");
+                }
+                if (ImGui::Button("Reset randomisation"))
+                    g_spawnRand = SpawnRandom{};
+            }
+            else
+                ImGui::TextDisabled("Off — exact shape parameters, legacy size jitter.");
+        }
+
+        if (ImGui::CollapsingHeader("Colour"))
+        {
+            ImGui::Checkbox("Randomise##color", &g_spawnColorRand);
+            ImGui::ColorEdit3("Base", g_spawnColor);
+            tip("Randomise on: random hues near this colour (the base hue; see Hue spread).\n"
+                "Randomise off: every spawned body gets exactly this colour.\n"
+                "Ragdolls take the colour as their shirt.");
+            if (g_spawnColorRand)
+            {
+                ImGui::SliderFloat("Hue spread", &g_spawnColorSpread, 0.0f, 1.0f);
+                tip("How far a random body's hue may go from the base hue: 0 = the base hue exactly,\n"
+                    "1 = the whole colour wheel (the default).");
+                ImGui::SliderFloat("Saturation", &g_spawnColorSat, 0.0f, 1.0f);
+                ImGui::SliderFloat("Value", &g_spawnColorVal, 0.0f, 1.0f);
+            }
+            else
+                ImGui::TextDisabled("Off — every spawned body gets the base colour.");
+            if (ImGui::Button("Reset##colour"))
+            {
+                g_spawnColorRand = true;
+                g_spawnColor[0] = g_spawnColor[1] = g_spawnColor[2] = 0.65f;
+                g_spawnColorSpread = 1.0f;
+                g_spawnColorSat = 0.6f;
+                g_spawnColorVal = 0.92f;
+            }
+        }
+
+        if (ragdoll)
         {
             ImGui::SliderFloat("Ragdoll break force", &g_ragdollBreak, 0.0f, 1500.0f,
                                g_ragdollBreak <= 0.0f ? "never" : "%.0f N");
@@ -1200,6 +1719,61 @@ static void drawUI()
         tip("A line from each jointed body's centre to its joint anchor.");
         ImGui::Checkbox("Broadphase grid", &g_showGrid);
         tip("The hash-grid cells the broadphase bins bodies into.");
+
+        // The soil overlays, in their own foldout. The Load and Porosity/packing colour modes
+        // live here too (they stay mutually exclusive with the modes above).
+        if (ImGui::CollapsingHeader("Soil overlays"))
+        {
+            overlayToggle("Load", kColorLoad,
+                          "Contact load per body as a multiple of its own weight, on a log ramp.\n"
+                          "Blue: lightly loaded; red: carrying several times its own weight.\n"
+                          "The top of the ramp self-tracks the scene's peak load.");
+            if (g_colorMode == kColorLoad)
+            {
+                ImGui::SliderFloat("Load range", &g_loadRef, 0.25f, 4.0f, "%.2f x");
+                tip("Bias on the auto-tracked reference load the ramp maps to full red.");
+            }
+            overlayToggle("Porosity / packing", kColorPack,
+                          "Local packing fraction on a grid: each body coloured by the summed body\n"
+                          "area in its cell over the cell area (statics excluded). Blue loose, red dense.");
+            if (g_colorMode == kColorPack)
+            {
+                ImGui::SliderFloat("Packing scale", &g_packRef, 0.3f, 1.0f, "%.2f");
+                tip("Packing fraction drawn at the top of the colour ramp.");
+            }
+            ImGui::Checkbox("Force chains", &g_showChains);
+            tip("A line between the centres of each contacting pair, thicker and brighter with the\n"
+                "normal force: the classic granular force-chain picture. Watch it re-form as you dig.");
+            ImGui::SliderInt("Max chain edges", &g_maxChains, 100, 200000, "%d");
+            tip("Cap on the chain lines drawn per frame; lower it for performance in huge piles.\n"
+                "Contacts are taken in manifold order, so a cap drops chains near the end of the\n"
+                "list (roughly the top of the scene).");
+            ImGui::SliderFloat("Chain force", &g_chainScale, 5.0f, 5000.0f, "%.0f N", ImGuiSliderFlags_Logarithmic);
+            tip("The normal force drawn at the full chain width and brightness.");
+            ImGui::Checkbox("Stress field", &g_showStress);
+            tip("Normal force summed into grid cells, drawn as translucent heat under the bodies\n"
+                "(force per unit length). Shows the pressure field and arching.");
+            ImGui::Checkbox("Velocity field", &g_showVelField);
+            tip("Grid-averaged velocity of the awake bodies as arrows. Shows flow and avalanching.");
+            if (g_showStress || g_showVelField || g_colorMode == kColorPack)
+            {
+                ImGui::SliderFloat("Field cell", &g_stressCell, 0.25f, 8.0f, "%.2f m", ImGuiSliderFlags_Logarithmic);
+                tip("Cell size shared by the fields and the packing overlay; doubled automatically\n"
+                    "when the view is too wide.");
+                if (g_showStress)
+                {
+                    ImGui::SliderFloat("Stress scale", &g_stressRef, 10.0f, 100000.0f, "%.0f N/m",
+                                       ImGuiSliderFlags_Logarithmic);
+                    tip("Cell line load drawn at the top of the colour ramp.");
+                }
+                if (g_showVelField)
+                {
+                    ImGui::SliderFloat("Arrow speed", &g_velScale, 0.5f, 20.0f, "%.1f m/s",
+                                       ImGuiSliderFlags_Logarithmic);
+                    tip("Mean cell speed drawn as a one-cell arrow.");
+                }
+            }
+        }
     }
 
     if (ImGui::CollapsingHeader("Contact markers"))
@@ -1296,9 +1870,10 @@ static void smokeTick(int smokeFrame)
     if (f == 0)
     {
         loadScene(scene);
-        g_colorMode = scene % 4;
+        g_colorMode = scene % 6;
     }
-    g_world.setExtraReadback(g_colorMode != 0);
+    g_world.setExtraReadback(extrasNeeded());
+    g_world.setContactDebug(contactOverlayOn());
     if (frames < 90)
         return;
     int dyn = -1;
@@ -1312,6 +1887,8 @@ static void smokeTick(int smokeFrame)
         spawnCluster(Vec2(p.x, p.y + 6.0f), scene % 3, scene % 3 == 2 ? 6 : 40, Vec2());
     else if (f == 20)
         g_showContacts = g_showNormals = g_showJoints = g_showGrid = true;
+    else if (f == 21)
+        g_showChains = g_showStress = g_showVelField = true;
     else if (f == 30)
         g_world.grabBegin(p);
     else if (f > 30 && f < 60)
@@ -1321,6 +1898,7 @@ static void smokeTick(int smokeFrame)
     else if (f == 70)
     {
         g_showContacts = g_showNormals = g_showJoints = g_showGrid = false;
+        g_showChains = g_showStress = g_showVelField = false;
         g_world.wakeAll();
     }
     else if (f == 80 && scene == 0)
@@ -1682,7 +2260,8 @@ int main(int argc, char **argv)
                 g_rainCarry -= (float)n;
                 spawnRain(n);
             }
-            g_world.setExtraReadback(g_colorMode != 0);
+            g_world.setExtraReadback(extrasNeeded());
+            g_world.setContactDebug(contactOverlayOn());
             g_lastResult = g_world.step();
             g_stepsTaken++;
             collectEventMarks();

@@ -77,6 +77,8 @@ Swept sweptBox(World2 *w, uint i)
     Swept r;
     r.p0 = v2add(w->initPos[b], shapeArm(w, i, w->ang[b]));
     r.s = v2sub(w->pos[b], w->initPos[b]);
+    if (w->substeps > 1u)
+        r.s = v2mul(r.s, (float)w->substeps); // the warm start moved one substep; cover the whole step
     r.e = aabbHalfAt(w, i, w->ang[b]);
     r.mid = v2add(r.p0, v2mul(r.s, 0.5f));
     float reach = max(abs(r.s.x), abs(r.s.y)) / w->cellSize;

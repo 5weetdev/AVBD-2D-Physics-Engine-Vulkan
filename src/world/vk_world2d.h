@@ -26,7 +26,11 @@
 #include "maths2d.h"
 #include "query2d.h"
 #include "scene2d.h"
-#include "world2d_args.h"
+#include "task_pool2d.h"
+#include "vk_rerun.h"
+
+#include <memory>
+#include "vk_args2d.h"
 
 #include "vk_buffer.h"
 #include "vk_cmd.h"
@@ -36,20 +40,17 @@
 #include "vk_primitives.h"
 
 #include <chrono>
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
 namespace avbd2d
 {
 
-struct StepResult2D
+struct StepResult2D : avbdvk::RerunCounters
 {
     bool ok = true;         // false only when a hard capacity ceiling forced clamped results
     bool truncated = false; // the committed step used clamped pair/contact buffers
-    int capacityReruns = 0;
-    int jpReruns = 0;
-    int colorReruns = 0;
-    int submits = 0;         // vkQueueSubmit calls this step made (1 unless it reran)
     int pairs = 0;           // broadphase pairs
     int contacts = 0;        // contact points
     int colors = 0;          // graph colours
@@ -59,6 +60,18 @@ struct StepResult2D
     int eventsTruncated = 0; // bit k set: event kind k overflowed its buffer this step (it grows for the next)
     float stepMs = 0.0f;     // host wall clock
     const char *failResource = "";
+};
+
+// Early-warning measurements of the last committed step (see Avbd2dStepDiagnostics).
+struct StepDiagnostics2D
+{
+    int substeps = 0;
+    int contacts = 0;
+    int colors = 0;
+    int colorReruns = 0;
+    float contactCflMax = 0.0f;
+    float penetrationRatioMax = 0.0f;
+    float speedMax = 0.0f;
 };
 
 // GPU timestamps of the committed pass, in milliseconds. `valid` is false if the device has
@@ -121,11 +134,16 @@ int addSpawnDesc(Scene2D &s, const SpawnDesc2D &d);
 
 struct ContactDebug2D
 {
-    Vec2 p;      // world point
-    Vec2 n;      // normal, from B to A
-    float force; // normal multiplier magnitude (N)
-    float sep;   // n . (xA - xB) at the stored anchors; negative = overlap (m)
+    Vec2 p;        // world point (the anchors' midpoint)
+    Vec2 pA, pB;   // the two contact anchors in world space
+    Vec2 n;        // normal, from B to A
+    float force;   // normal multiplier magnitude (N)
+    float tangent; // tangential multiplier magnitude (N)
+    float sep;     // n . (xA - xB) at the stored anchors; negative = overlap (m)
+    float mu;      // friction coefficient of the pair
     int bodyA, bodyB;
+    uint8_t stick; // 1 while the friction row held inside the cone this step
+    Vec2 penalty;  // penalty k of the normal (x) and friction (y) rows
 };
 
 // The events of the last committed step, by shape index (Scene2D shape ids). A kind that
@@ -186,7 +204,6 @@ public:
     void initDevice();
     void configureDevice();
     void destroy();
-    bool initialised() const { return m_init; }
     avbdvk::Device &device() { return m_dev; }
 
     // Replaces the world with `scene` (bodies, joints, parameters). Resets every cache. With
@@ -203,18 +220,17 @@ public:
     void stepBegin();
     StepResult2D stepEnd();
     bool stepInFlight() const { return m_stepActive; }
+    // True when no step is in flight or its submission has finished on the GPU. Never blocks.
+    bool stepDone() const { return !m_stepActive || m_cmd.done(); }
+    // Solver substeps per step (1..8); applied from the next stepBegin.
+    void setSubsteps(int n) { m_substeps = std::min(std::max(n, 1), 8); }
+    int substeps() const { return m_substeps; }
+    const StepDiagnostics2D &diagnostics() const { return m_diag; }
 
     SolverParams2D &params() { return m_params; }
     const SolverParams2D &params() const { return m_params; }
     const StepResult2D &lastResult() const { return m_result; }
     const StepTiming2D &timing() const { return m_timing; }
-    // Ops recorded by the last pass (dispatches, compute barriers, transfers).
-    avbdvk::CommandList::OpCounts lastOps() const { return m_cmd.opCounts(); }
-    // The one-workgroup iteration path (csIterate2D) replaces the per-colour dispatches when at most
-    // this many dynamic bodies exist; 0 forces the multi-dispatch path. Same arithmetic either way.
-    void setSmallWorldLimit(int bodies) { m_smallLimit = bodies; }
-    int smallWorldLimit() const { return m_smallLimit; }
-    bool lastPassFused() const { return m_lastFused; }
     WorldStats2D stats() const;
 
     // --- Bodies --------------------------------------------------------------------------
@@ -259,7 +275,9 @@ public:
     // both bodies. `joint` is the authored joint index.
     void queueJointMotor(int joint, int axis, uint32_t mode, float speed, float maxForce);
     void queueJointLimit(int joint, int axis, bool on, float lower, float upper);
-    void queueJointBreak(int joint);
+    // Raises the hard rows' penalty ceiling for one joint (1 = stock, clamped to 64); applied
+    // from the next step, like the other joint patches.
+    void queueJointLockScale(int joint, float scale);
     void queueJointWake(int joint);
 
     // The moved-body list of the last step: dynamic bodies that were awake at its start or are
@@ -270,12 +288,19 @@ public:
         int body;
         bool awake;      // awake at the end of the step
         bool fellAsleep; // awake at its start, not at its end
+        bool removed;    // the guard / kill plane removed it (or it was disabled) this step
         Vec2 pos;        // centre of mass
         float angle;
         Vec2 vel;
         float angVel;
     };
     const std::vector<MovedBody2D> &movedBodies() const { return m_moved2d; }
+    // The moved list is copied on the host in chunks of this many bodies, one chunk per pool
+    // task; work that walks it in parallel uses the same size so its chunk order matches.
+    static constexpr size_t kMovedChunk = 1024;
+    // The world's host task pool (the moved-list copies and the C API's per-body pass).
+    TaskPool2D &hostPool() { return *m_hostPool; }
+    const TaskPool2D &hostPool() const { return *m_hostPool; }
     // Host mirrors (the last completed step, plus queued set pose / velocity). velocities() is
     // always kept; awakeFlags() too.
     const float *angularVelocities() const { return m_hostAngVel.data(); }
@@ -326,19 +351,23 @@ public:
     bool uploadsPending() const { return !m_upOps.empty() || m_liveDirty; }
     // The reported host awake flag of a body (the mirror), set immediately.
     void setHostAwake(int body, bool awake);
-    // Test hooks: slots waiting for reuse, and the joint slot count.
-    int deadBodySlots() const { return (int)m_freeBodies.size(); }
-    int deadJointSlots() const { return (int)m_freeJoints.size(); }
-    int jointSlotCount() const { return m_jointSlots; }
-    bool jointAlive(int joint) const { return joint >= 0 && joint < m_jointCount && !m_jointDead[(size_t)joint]; }
 
     // --- Debug read-backs -------------------------------------------------------------------
     // When on, every step also copies velocities, sleep flags and graph colours to the host.
     void setExtraReadback(bool on) { m_extras = on; }
+    // When on (latched: never turns back off until the scene is rebuilt), every step also
+    // snapshots the manifolds into a host-visible buffer inside its own submission, and
+    // downloadContacts() reads that with no extra submit or wait.
+    void setContactDebug(bool on)
+    {
+        if (on)
+            m_contactDebug = true;
+    }
     const Vec2 *velocities() const { return m_hostVel.data(); }
     const uint8_t *awakeFlags() const { return m_hostAwake.data(); }
     const int *graphColors() const { return m_hostColor.data(); }
-    // The contact points of the last committed step (a synchronous read-back; for overlays).
+    // The contact points of the last committed step (for overlays). Reads the step's mapped
+    // snapshot when the contact debug is on, else falls back to a synchronous read-back.
     void downloadContacts(std::vector<ContactDebug2D> &out) const;
     // What the host mirrors cannot tell: per body, 1 when the guard / kill plane removed it (or it
     // is disabled), and per authored joint, 1 when it fractured or its slot is free. A
@@ -352,10 +381,12 @@ public:
     // pick() returns the dynamic body under `p`, or -1.
     struct GrabOptions
     {
-        float radius = 0.0f;       // 0 = just the body under the cursor
-        bool followJoints = true;  // a jointed body brings what its joints reach, within the radius
-        float falloff = 2.0f;      // exponent of the strength falloff towards the rim
-        float minStrength = 0.05f; // strength at the rim, as a fraction of the centre's
+        float radius = 0.0f;          // 0 = just the body under the cursor
+        bool followJoints = true;     // a jointed body brings what its joints reach, within the radius
+        float falloff = 2.0f;         // exponent of the strength falloff towards the rim
+        float minStrength = 0.05f;    // strength at the rim, as a fraction of the centre's
+        float angularStrength = 0.0f; // multiplier on the angular spring that holds grabSetAngle's
+                                      // angle; 0 = the held bodies keep their orientation free
     };
     // The strength weight of a body `dist` from the click, 1 at the cursor and `minStrength` at
     // the rim.
@@ -365,10 +396,15 @@ public:
     bool grabBegin(Vec2 p); // just the body under the cursor
     bool grabBegin(Vec2 p, const GrabOptions &opt);
     void grabMove(Vec2 p);
+    // The orientation the held group turns to (radians), eased at kGrabTurnRate; used only
+    // when GrabOptions::angularStrength > 0.
+    void grabSetAngle(float angle);
     void grabEnd();
     bool grabbing() const { return m_grabBody >= 0; }
     int grabbedBody() const { return m_grabBody; }
     int grabCount() const { return (int)m_grabSorted.size(); }
+    // Every body the grab holds, in slot order (the clicked body first).
+    const std::vector<int> &grabbedBodies() const { return m_grabGroup; }
     bool isGrabbed(int body) const;
 
     // --- Events ---------------------------------------------------------------------------
@@ -419,13 +455,14 @@ public:
     bool overlapAabbsBatch(const Vec2 *lo, const Vec2 *hi, int count, uint64_t cat, uint64_t mask, int maxPer,
                            int *outIds, int *outCounts);
 
-    // --- Test hook -----------------------------------------------------------------------
+private:
+    friend struct VkWorld2DTestAccess; // test hooks: vk_world2d_test_access.h
+
     // Forces tiny pair/contact capacities so the first steps exercise the rerun path.
     void debugForceTinyCapacity(int pairCap, int contactCap);
-    // Forces every event kind's buffer to `cap` records at the next build().
-    void debugForceTinyEventCapacity(int cap) { m_forcedEventCap = cap; }
-
-private:
+    // The old staging + one-shot-submit + queue-wait pull; only used when the snapshot has
+    // never been recorded at the current caps (the contact debug off since the last rebuild).
+    void downloadContactsSync(std::vector<ContactDebug2D> &out) const;
     // One side of the double-buffered manifold store: slot arrays then contact arrays.
     struct ManBufs
     {
@@ -446,6 +483,8 @@ private:
         bool preserve;
     };
 
+    struct PipelineSpec2D;
+    static const PipelineSpec2D *pipelineSpecs(size_t &count); // every pipeline: member, SPIR-V, entry point
     void createPipelines();
     std::vector<avbdvk::Buffer *> buffers();
     std::vector<BodyBuf> bodyBuffers();
@@ -467,12 +506,24 @@ private:
     void uploadVerts(int off, int n);
     void clearBodyPatch(int body, uint32_t keepMask);
     void clearJointPatch(int joint);
-    void updateGridSizing();
     int pairCeiling() const;
     int contactCeiling() const { return 2 * pairCeiling(); }
     void setCapacity(int pairCap, int contactCap, bool preserve);
     World2Gpu makeWorld(int colorBound) const;
     void recordPass(int pass, int colorBound, int jpRounds);
+    struct PassCtx;
+    VkDeviceAddress ringArgs(const PassCtx &pc, uint32_t a);
+    void dispatchGrid(const PassCtx &pc, avbdvk::Pipeline &pl, int threads, int group, uint32_t a = 0);
+    void beginPass(PassCtx &pc);              // reserve, reset the command list, upload patches, save/restore state
+    void recordFront(PassCtx &pc);            // phases 1-3
+    void recordGraph(PassCtx &pc);            // phase 4
+    void recordSolve(PassCtx &pc);            // phase 5
+    void recordFusedSolve(PassCtx &pc);
+    void recordColorSolve(PassCtx &pc);
+    void recordSubstepStart(PassCtx &pc, int s);
+    void recordSubstepEvents(PassCtx &pc);
+    void recordTail(PassCtx &pc);             // phase 6
+    void recordReadbacks(PassCtx &pc);        // phase 7
     void saveState();
     void restoreState();
     void refreshHostCopies();
@@ -503,7 +554,8 @@ private:
         float speed = 0.0f, maxForce = 0.0f;
         uint32_t limitAxis = 0;
         float lower = 0.0f, upper = 0.0f;
-        uint32_t pad[3] = {};
+        float lockScale = 0.0f; // with JP_LOCK_SCALE: multiplier on the hard-row penalty ceiling
+        uint32_t pad[2] = {};
     };
     BodyPatch &bodyPatch(int body);
     JointPatch &jointPatch(int joint);
@@ -512,10 +564,10 @@ private:
 
     avbdvk::Device m_dev;
     avbdvk::PipelineLayout m_layout;
-    avbdvk::Pipeline m_integrate, m_gravityX, m_velocity, m_guard, m_velocityGuard;
+    avbdvk::Pipeline m_integrate, m_gravityX, m_velocity, m_velocityGuard;
     avbdvk::Pipeline m_ccdFlagPl, m_ccdArgsPl, m_ccdPl;
     avbdvk::Pipeline m_gridClear, m_gridInsert, m_findPairs, m_oversizePairs, m_narrowphase;
-    avbdvk::Pipeline m_jointInit, m_integrateJoint, m_jointDual, m_colorArgs, m_primal, m_dual, m_dualAll, m_iterate,
+    avbdvk::Pipeline m_jointInit, m_integrateJoint, m_colorArgs, m_primal, m_dualAll, m_iterate,
         m_sortSmall, m_buildSmall;
     avbdvk::Pipeline m_sleepPrep, m_sleepBlockPre, m_sleepMark, m_sleepNbrC, m_sleepNbrJ, m_sleepCommit;
     avbdvk::Pipeline m_eventBegin, m_eventEnd, m_eventHit, m_eventJoint, m_applyImpulses;
@@ -535,12 +587,14 @@ private:
     Scene2D m_scene;
     StepResult2D m_result;
     StepTiming2D m_timing;
-    int m_smallLimit = 512;
+    int m_smallLimit =
+        512; // one-workgroup iteration path (csIterate2D) up to this many dynamic bodies; env AVBD2D_SMALL_WORLD, 0 = multi-dispatch only
     bool m_lastFused = false;
     bool m_lastSmallBuild = false;
     static constexpr int kSmallBuildMaxBodies = 16384;
 
     // Body state (device), sized to m_bodyCap.
+    avbdvk::Buffer m_subPos, m_subAng; // pose at the start of the current solver substep
     avbdvk::Buffer m_pos, m_ang, m_initPos, m_initAng, m_inertPos, m_inertAng, m_vel, m_angVel, m_prevVel;
     avbdvk::Buffer m_moment, m_mass, m_awake, m_sleepTimer, m_blocked, m_bProps;
     avbdvk::Buffer m_dynIdx, m_statIdx;
@@ -624,6 +678,10 @@ private:
     std::vector<MovedBody2D> m_moved2d;
     avbdvk::MappedBuffer m_jForceHost;
     bool m_fullReadback = true, m_jointForceReadback = false;
+    // The contact-debug snapshot: the manifold arrays the overlays consume, packed into one
+    // host-visible buffer and copied inside the step's submission (see downloadContacts).
+    avbdvk::MappedBuffer m_manDebugHost;
+    bool m_contactDebug = false;
 
     // The async step.
     bool m_stepActive = false;
@@ -689,6 +747,10 @@ private:
     int m_pairCap = 0, m_contactCap = 0;
     int m_prevPairs = 0; // live pairs of the manifold set that is now "previous"
     int m_lastColors = 0;
+    int m_prevColors = 0;   // colours of the step before the last (the colour bound's growth term)
+    int m_substeps = 1;     // requested solver substeps
+    int m_stepSubsteps = 1; // latched at stepBegin for the step in flight (and its reruns)
+    StepDiagnostics2D m_diag;
     int m_forcedPairCap = 0, m_forcedContactCap = 0;
     int m_removedTotal = 0, m_brokenTotal = 0, m_awakeNow = -1;
     bool m_wakeAllPending = false;
@@ -699,11 +761,17 @@ private:
     int m_grabBody = -1;
     GrabOptions m_grabOpt;
     Vec2 m_grabClick;
-    std::vector<int> m_grabGroup;   // body of each used slot
-    std::vector<Vec2> m_grabOffset; // target of each slot's anchor, relative to the cursor
-    std::vector<Vec2> m_grabLocal;  // each slot's anchor on its body (body frame)
-    Vec2 m_grabCursor;              // where grabMove last put the cursor
-    std::vector<int> m_grabSorted;  // m_grabGroup sorted, for isGrabbed()
+    std::vector<int> m_grabGroup;      // body of each used slot
+    std::vector<Vec2> m_grabOffset;    // target of each slot's anchor, relative to the cursor
+    std::vector<Vec2> m_grabLocal;     // each slot's anchor on its body (body frame)
+    Vec2 m_grabCursor;                 // where grabMove last put the cursor
+    std::vector<float> m_grabStartAng; // each slot's angle at grabBegin
+    float m_grabAngle = 0.0f;          // what grabSetAngle last asked for
+    float m_grabApplied = 0.0f;        // what the group has turned so far (eased towards it)
+    std::vector<int> m_grabSorted;     // m_grabGroup sorted, for isGrabbed()
+
+    // Host-side chunked copies and passes; declared last so it is built after the buffers.
+    std::unique_ptr<TaskPool2D> m_hostPool = std::make_unique<TaskPool2D>();
 };
 
 } // namespace avbd2d
