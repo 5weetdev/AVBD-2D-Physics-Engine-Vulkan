@@ -34,12 +34,21 @@ namespace avbdvk
 
 static std::atomic<uint32_t> g_validationMessageCount{0};
 
-uint32_t Device::validationMessageCount() { return g_validationMessageCount.load(); }
-void Device::resetValidationMessageCount() { g_validationMessageCount.store(0); }
+uint32_t Device::validationMessageCount()
+{
+    return g_validationMessageCount.load();
+}
+void Device::resetValidationMessageCount()
+{
+    g_validationMessageCount.store(0);
+}
 
 static std::atomic<int> g_validationOverride{-1}; // -1: follow build/env, 0/1: forced
 
-void setValidationOverride(bool on) { g_validationOverride.store(on ? 1 : 0); }
+void setValidationOverride(bool on)
+{
+    g_validationOverride.store(on ? 1 : 0);
+}
 
 bool wantValidation()
 {
@@ -54,11 +63,10 @@ bool wantValidation()
 #endif
 }
 
-static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-    VkDebugUtilsMessageTypeFlagsEXT /*type*/,
-    const VkDebugUtilsMessengerCallbackDataEXT *data,
-    void * /*userData*/)
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+                                                    VkDebugUtilsMessageTypeFlagsEXT /*type*/,
+                                                    const VkDebugUtilsMessengerCallbackDataEXT *data,
+                                                    void * /*userData*/)
 {
     if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
     {
@@ -69,7 +77,10 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 }
 
 Device::Device() {}
-Device::~Device() { shutdown(); }
+Device::~Device()
+{
+    shutdown();
+}
 
 void Device::requireAdapterLuid(const uint8_t luid[8])
 {
@@ -77,7 +88,10 @@ void Device::requireAdapterLuid(const uint8_t luid[8])
     memcpy(m_requiredLuid, luid, 8);
 }
 
-void Device::enableExternalWin32() { m_externalWin32 = true; }
+void Device::enableExternalWin32()
+{
+    m_externalWin32 = true;
+}
 
 void Device::requireInstanceExtensions(const std::vector<const char *> &extensions)
 {
@@ -196,8 +210,8 @@ void Device::shutdown()
     }
     if (m_debugMessenger)
     {
-        auto destroy = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
-            m_instance, "vkDestroyDebugUtilsMessengerEXT");
+        auto destroy =
+            (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_instance, "vkDestroyDebugUtilsMessengerEXT");
         if (destroy)
             destroy(m_instance, m_debugMessenger, nullptr);
         m_debugMessenger = VK_NULL_HANDLE;
@@ -271,16 +285,16 @@ void Device::createInstance()
 
     if (m_validation)
     {
-        auto create = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
-            m_instance, "vkCreateDebugUtilsMessengerEXT");
+        auto create =
+            (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_instance, "vkCreateDebugUtilsMessengerEXT");
         if (create)
         {
             VkDebugUtilsMessengerCreateInfoEXT dci{VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
-            dci.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+            dci.messageSeverity =
+                VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
             dci.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                               VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                               VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+                              VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                              VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
             dci.pfnUserCallback = debugCallback;
             VK_CHECK(create(m_instance, &dci, nullptr, &m_debugMessenger));
         }
@@ -301,7 +315,8 @@ void Device::pickPhysicalDevice()
     // With enablePresentation() active, a candidate must have SOME queue family that
     // is both GRAPHICS|COMPUTE and can present to m_surface -- same-queue compute +
     // graphics + present, so the caller never juggles ownership transfers.
-    auto supportsPresent = [&](VkPhysicalDevice d) -> bool {
+    auto supportsPresent = [&](VkPhysicalDevice d) -> bool
+    {
         if (!m_wantPresent)
             return true;
         uint32_t fc = 0;
@@ -310,8 +325,7 @@ void Device::pickPhysicalDevice()
         vkGetPhysicalDeviceQueueFamilyProperties(d, &fc, fams.data());
         for (uint32_t i = 0; i < fc; i++)
         {
-            if (!(fams[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) ||
-                !(fams[i].queueFlags & VK_QUEUE_COMPUTE_BIT))
+            if (!(fams[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) || !(fams[i].queueFlags & VK_QUEUE_COMPUTE_BIT))
                 continue;
             VkBool32 present = VK_FALSE;
             vkGetPhysicalDeviceSurfaceSupportKHR(d, i, m_surface, &present);
@@ -445,7 +459,8 @@ bool Device::evaluateDevice(VkPhysicalDevice d, DeviceInfo &info, std::string &w
     vkEnumerateDeviceExtensionProperties(d, nullptr, &extCount, nullptr);
     std::vector<VkExtensionProperties> exts(extCount);
     vkEnumerateDeviceExtensionProperties(d, nullptr, &extCount, exts.data());
-    auto has = [&](const char *name) {
+    auto has = [&](const char *name)
+    {
         for (auto &e : exts)
             if (strcmp(e.extensionName, name) == 0)
                 return true;
@@ -456,7 +471,8 @@ bool Device::evaluateDevice(VkPhysicalDevice d, DeviceInfo &info, std::string &w
 
     VkPhysicalDeviceVulkan12Features f12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     VkPhysicalDeviceVulkan13Features f13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
-    VkPhysicalDeviceShaderAtomicFloatFeaturesEXT fAF{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT};
+    VkPhysicalDeviceShaderAtomicFloatFeaturesEXT fAF{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT};
     f12.pNext = &f13;
     VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     f2.pNext = &f12;
@@ -469,7 +485,8 @@ bool Device::evaluateDevice(VkPhysicalDevice d, DeviceInfo &info, std::string &w
         f13.subgroupSizeControl && (p13.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0;
 
     std::string missing;
-    auto need = [&](bool ok, const std::string &what) {
+    auto need = [&](bool ok, const std::string &what)
+    {
         if (!ok)
             missing += std::string(missing.empty() ? "" : ", ") + what;
     };
@@ -530,8 +547,7 @@ void Device::createLogicalDevice()
     {
         if (m_wantPresent)
         {
-            if (!(fams[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) ||
-                !(fams[i].queueFlags & VK_QUEUE_COMPUTE_BIT))
+            if (!(fams[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) || !(fams[i].queueFlags & VK_QUEUE_COMPUTE_BIT))
                 continue;
             VkBool32 present = VK_FALSE;
             vkGetPhysicalDeviceSurfaceSupportKHR(m_physicalDevice, i, m_surface, &present);
@@ -602,7 +618,8 @@ void Device::createLogicalDevice()
     features2.features.shaderInt64 = VK_TRUE;
     features2.pNext = m_haveAtomicFloat ? (void *)&fAtomicFloat : (void *)&f13;
 
-    auto supported = [&](const char *name) {
+    auto supported = [&](const char *name)
+    {
         for (auto &e : m_extensions)
             if (e == name)
                 return true;
@@ -610,10 +627,10 @@ void Device::createLogicalDevice()
     };
     std::vector<const char *> deviceExtensions;
     // Each is enabled only if the device lists it (core in 1.2/1.3 or optional).
-    for (const char *name : {VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
-                             VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
-                             // Diagnostic-only: VkPhysicalDeviceMemoryBudgetPropertiesEXT.
-                             VK_EXT_MEMORY_BUDGET_EXTENSION_NAME})
+    for (const char *name :
+         {VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME, VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
+          // Diagnostic-only: VkPhysicalDeviceMemoryBudgetPropertiesEXT.
+          VK_EXT_MEMORY_BUDGET_EXTENSION_NAME})
         if (supported(name))
             deviceExtensions.push_back(name);
     if (m_haveAtomicFloat)
@@ -646,12 +663,12 @@ void Device::createLogicalDevice()
 
     if (m_validation)
     {
-        cmdBeginDebugLabel = (PFN_vkCmdBeginDebugUtilsLabelEXT)vkGetInstanceProcAddr(
-            m_instance, "vkCmdBeginDebugUtilsLabelEXT");
-        cmdEndDebugLabel = (PFN_vkCmdEndDebugUtilsLabelEXT)vkGetInstanceProcAddr(
-            m_instance, "vkCmdEndDebugUtilsLabelEXT");
-        setDebugObjectName = (PFN_vkSetDebugUtilsObjectNameEXT)vkGetInstanceProcAddr(
-            m_instance, "vkSetDebugUtilsObjectNameEXT");
+        cmdBeginDebugLabel =
+            (PFN_vkCmdBeginDebugUtilsLabelEXT)vkGetInstanceProcAddr(m_instance, "vkCmdBeginDebugUtilsLabelEXT");
+        cmdEndDebugLabel =
+            (PFN_vkCmdEndDebugUtilsLabelEXT)vkGetInstanceProcAddr(m_instance, "vkCmdEndDebugUtilsLabelEXT");
+        setDebugObjectName =
+            (PFN_vkSetDebugUtilsObjectNameEXT)vkGetInstanceProcAddr(m_instance, "vkSetDebugUtilsObjectNameEXT");
     }
 }
 
@@ -663,8 +680,7 @@ void Device::queueSubmit(const VkSubmitInfo &si, bool step)
         if (m_failSubmitAt != 0 && n >= m_failSubmitAt)
         {
             // Test hook (AVBD2D_DEBUG_FAIL_SUBMIT): behave as if the driver reported device loss.
-            fprintf(stderr, "[avbd_vk] debug: simulating VK_ERROR_DEVICE_LOST on submit %llu\n",
-                    (unsigned long long)n);
+            fprintf(stderr, "[avbd_vk] debug: simulating VK_ERROR_DEVICE_LOST on submit %llu\n", (unsigned long long)n);
             throw VkError(VK_ERROR_DEVICE_LOST, "simulated device loss (debug hook)");
         }
     }

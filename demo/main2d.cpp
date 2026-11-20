@@ -40,7 +40,6 @@
 #include <thread>
 #include <vector>
 
-
 using namespace avbd2d;
 
 static constexpr int kFramesInFlight = 2;
@@ -311,12 +310,30 @@ static uint32_t hsv(float h, float s, float v)
     float r = 0, g = 0, b = 0;
     switch ((int)(h * 6.0f) % 6)
     {
-    case 0: r = c; g = x; break;
-    case 1: r = x; g = c; break;
-    case 2: g = c; b = x; break;
-    case 3: g = x; b = c; break;
-    case 4: r = x; b = c; break;
-    default: r = c; b = x; break;
+    case 0:
+        r = c;
+        g = x;
+        break;
+    case 1:
+        r = x;
+        g = c;
+        break;
+    case 2:
+        g = c;
+        b = x;
+        break;
+    case 3:
+        g = x;
+        b = c;
+        break;
+    case 4:
+        r = x;
+        b = c;
+        break;
+    default:
+        r = c;
+        b = x;
+        break;
     }
     return packRGB(r + m, g + m, b + m);
 }
@@ -336,7 +353,8 @@ static void extendColors()
         else if (s.mass[i] <= 0.0f)
             g_colors[i] = kStaticColor;
         else
-            g_colors[i] = hsv(0.61803398875f * (float)i, s.shType[(size_t)s.shapeFirst[(size_t)i]] == SHAPE2D_CIRCLE ? 0.45f : 0.6f, 0.92f);
+            g_colors[i] = hsv(0.61803398875f * (float)i,
+                              s.shType[(size_t)s.shapeFirst[(size_t)i]] == SHAPE2D_CIRCLE ? 0.45f : 0.6f, 0.92f);
     }
 }
 
@@ -347,10 +365,10 @@ static constexpr const char *kCaptureDir = "captures2d";
 static bool g_inCapture = false;
 static Scene2D g_captureScene;
 static CaptureMeta2D g_captureMeta;
-static std::string g_captureName;     // file name of the loaded capture
-static std::string g_captureStatus;   // last capture / load message for the panel
+static std::string g_captureName;   // file name of the loaded capture
+static std::string g_captureStatus; // last capture / load message for the panel
 static std::vector<std::string> g_captureFiles;
-static uint64_t g_stepsTaken = 0;     // steps since the scene was loaded
+static uint64_t g_stepsTaken = 0; // steps since the scene was loaded
 
 static void refreshCaptureList()
 {
@@ -804,14 +822,16 @@ static void collectEventMarks()
 {
     for (EventMark &m : g_eventMarks)
         m.life--;
-    g_eventMarks.erase(std::remove_if(g_eventMarks.begin(), g_eventMarks.end(), [](const EventMark &m) { return m.life <= 0; }),
-                       g_eventMarks.end());
+    g_eventMarks.erase(
+        std::remove_if(g_eventMarks.begin(), g_eventMarks.end(), [](const EventMark &m) { return m.life <= 0; }),
+        g_eventMarks.end());
     if (!g_showEvents)
         return;
     const Scene2D &s = g_world.scene();
     const Vec2 *pos = g_world.positions();
     const int bodies = g_world.bodyCount();
-    auto shapeP = [&](int shape, Vec2 &p) {
+    auto shapeP = [&](int shape, Vec2 &p)
+    {
         if (shape < 0 || shape >= s.shapeTotal())
             return false;
         const int b = s.shBody[(size_t)shape];
@@ -820,7 +840,8 @@ static void collectEventMarks()
         p = pos[b];
         return true;
     };
-    auto add = [&](Vec2 p, int kind) {
+    auto add = [&](Vec2 p, int kind)
+    {
         if (g_eventMarks.size() < kEventMarkCap)
             g_eventMarks.push_back({p, kEventMarkLife, kind});
     };
@@ -1139,9 +1160,11 @@ static void drawUI()
         ImGui::SliderFloat("Friction", &g_spawnFriction, 0.0f, 1.5f);
         if (g_spawnKind == 2 || g_spawnKind == 5)
         {
-            ImGui::SliderFloat("Ragdoll break force", &g_ragdollBreak, 0.0f, 1500.0f, g_ragdollBreak <= 0.0f ? "never" : "%.0f N");
+            ImGui::SliderFloat("Ragdoll break force", &g_ragdollBreak, 0.0f, 1500.0f,
+                               g_ragdollBreak <= 0.0f ? "never" : "%.0f N");
             tip("Force on a joint's linear multiplier above which the joint breaks. 0 = unbreakable.\n"
-                "Density and friction apply to the other shapes; a ragdoll is Box2D's human (density 1, friction 0.2).");
+                "Density and friction apply to the other shapes; a ragdoll is Box2D's human (density 1, friction "
+                "0.2).");
         }
         ImGui::SliderInt("Burst count", &g_spawnCount, 1, 5000);
         if (ImGui::Button("Spawn one (F)"))
@@ -1168,8 +1191,7 @@ static void drawUI()
 
     if (ImGui::CollapsingHeader("Debug overlays"))
     {
-        overlayToggle("Sleeping bodies", 1,
-                      "Blue: asleep, and dropped from the constraint graph. Green: awake.");
+        overlayToggle("Sleeping bodies", 1, "Blue: asleep, and dropped from the constraint graph. Green: awake.");
         overlayToggle("Speed", 2, "Linear speed. Shows the creep a settled-looking pile is hiding.");
         overlayToggle("Graph colors", 3,
                       "Jones-Plassmann colouring of the constraint graph. Bodies sharing a hue share no\n"
@@ -1239,20 +1261,18 @@ static void drawUI()
 
 static void printUsage(FILE *f)
 {
-    fprintf(f,
-            "avbd2d_demo [--scene <index|name>] [--frames N] [--smoke] [--show] [--no-vsync] [--verbose] [--help]\n"
-            "  --scene S     start on scene S (index or name); scenes:\n");
+    fprintf(f, "avbd2d_demo [--scene <index|name>] [--frames N] [--smoke] [--show] [--no-vsync] [--verbose] [--help]\n"
+               "  --scene S     start on scene S (index or name); scenes:\n");
     int n = 0;
     const scenes::SceneEntry2D *e = scenes::catalogue(n);
     for (int i = 0; i < n; i++)
         fprintf(f, "                  %d  %s\n", i, e[i].name);
-    fprintf(f,
-            "                or a capture file (P in the demo writes captures2d/*.a2dcap)\n"
-            "  --frames N    run N frames, then exit\n"
-            "  --smoke       unattended run of every scene with validation on; the exit code is the gate\n"
-            "  --show        show the window during --smoke / --frames (hidden by default)\n"
-            "  --no-vsync    present with MAILBOX when available\n"
-            "  --verbose     print the selected GPU\n");
+    fprintf(f, "                or a capture file (P in the demo writes captures2d/*.a2dcap)\n"
+               "  --frames N    run N frames, then exit\n"
+               "  --smoke       unattended run of every scene with validation on; the exit code is the gate\n"
+               "  --show        show the window during --smoke / --frames (hidden by default)\n"
+               "  --no-vsync    present with MAILBOX when available\n"
+               "  --verbose     print the selected GPU\n");
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1395,11 +1415,16 @@ int main(int argc, char **argv)
             printUsage(stdout);
             return 0;
         }
-        else if (!strcmp(a, "--smoke")) smoke = true;
-        else if (!strcmp(a, "--show")) show = true;
-        else if (!strcmp(a, "--verbose")) verbose = true;
-        else if (!strcmp(a, "--no-vsync")) g_vsync = false;
-        else if (!strcmp(a, "--frames") && hasValue) benchFrames = atoi(argv[++i]);
+        else if (!strcmp(a, "--smoke"))
+            smoke = true;
+        else if (!strcmp(a, "--show"))
+            show = true;
+        else if (!strcmp(a, "--verbose"))
+            verbose = true;
+        else if (!strcmp(a, "--no-vsync"))
+            g_vsync = false;
+        else if (!strcmp(a, "--frames") && hasValue)
+            benchFrames = atoi(argv[++i]);
         else if (!strcmp(a, "--scene") && hasValue)
         {
             const char *v = argv[++i];
@@ -1452,12 +1477,14 @@ int main(int argc, char **argv)
     std::vector<const char *> instExts(extCount);
     SDL_Vulkan_GetInstanceExtensions(g_window, &extCount, instExts.data());
     g_dev->requireInstanceExtensions(instExts);
-    g_dev->enablePresentation([](VkInstance instance) -> VkSurfaceKHR {
-        VkSurfaceKHR surf = VK_NULL_HANDLE;
-        if (!SDL_Vulkan_CreateSurface(g_window, instance, &surf))
-            fprintf(stderr, "SDL_Vulkan_CreateSurface failed: %s\n", SDL_GetError());
-        return surf;
-    });
+    g_dev->enablePresentation(
+        [](VkInstance instance) -> VkSurfaceKHR
+        {
+            VkSurfaceKHR surf = VK_NULL_HANDLE;
+            if (!SDL_Vulkan_CreateSurface(g_window, instance, &surf))
+                fprintf(stderr, "SDL_Vulkan_CreateSurface failed: %s\n", SDL_GetError());
+            return surf;
+        });
     g_world.initDevice(); // device + surface only; pipelines compile after the loading frame
     g_surface = g_dev->surface();
 
@@ -1511,18 +1538,20 @@ int main(int argc, char **argv)
     {
         std::atomic<bool> done{false};
         std::exception_ptr err;
-        std::thread loader([&] {
-            try
+        std::thread loader(
+            [&]
             {
-                g_world.init();
-                g_renderer.init(*g_dev, g_renderPass);
-            }
-            catch (...)
-            {
-                err = std::current_exception();
-            }
-            done = true;
-        });
+                try
+                {
+                    g_world.init();
+                    g_renderer.init(*g_dev, g_renderPass);
+                }
+                catch (...)
+                {
+                    err = std::current_exception();
+                }
+                done = true;
+            });
         while (!done)
         {
             SDL_Event le;
@@ -1580,14 +1609,22 @@ int main(int argc, char **argv)
             case SDL_KEYDOWN:
                 if (uiKeys || e.key.repeat)
                     break;
-                if (e.key.keysym.sym == SDLK_ESCAPE) running = false;
-                else if (e.key.keysym.sym == SDLK_r) restartScene();
-                else if (e.key.keysym.sym == SDLK_p) captureNow();
-                else if (e.key.keysym.sym == SDLK_SPACE) g_paused = !g_paused;
-                else if (e.key.keysym.sym == SDLK_PERIOD) g_stepOnce = true;
-                else if (e.key.keysym.sym == SDLK_f) spawnCluster(g_cursor, g_spawnKind, 1, Vec2());
-                else if (e.key.keysym.sym == SDLK_g) spawnCluster(g_cursor, g_spawnKind, g_spawnCount, Vec2());
-                else if (e.key.keysym.sym == SDLK_w) g_world.wakeAll();
+                if (e.key.keysym.sym == SDLK_ESCAPE)
+                    running = false;
+                else if (e.key.keysym.sym == SDLK_r)
+                    restartScene();
+                else if (e.key.keysym.sym == SDLK_p)
+                    captureNow();
+                else if (e.key.keysym.sym == SDLK_SPACE)
+                    g_paused = !g_paused;
+                else if (e.key.keysym.sym == SDLK_PERIOD)
+                    g_stepOnce = true;
+                else if (e.key.keysym.sym == SDLK_f)
+                    spawnCluster(g_cursor, g_spawnKind, 1, Vec2());
+                else if (e.key.keysym.sym == SDLK_g)
+                    spawnCluster(g_cursor, g_spawnKind, g_spawnCount, Vec2());
+                else if (e.key.keysym.sym == SDLK_w)
+                    g_world.wakeAll();
                 break;
             case SDL_MOUSEBUTTONDOWN:
                 if (uiMouse)
@@ -1761,8 +1798,8 @@ int main(int argc, char **argv)
     if (smoke)
     {
         const uint32_t vmsgs = avbdvk::Device::validationMessageCount();
-        printf("smoke: scenes %d frames %d step-failures %d non-finite-steps %d validation-messages %u\n",
-               g_sceneCount, frameNo, g_stepFailures, g_nonFinite, vmsgs);
+        printf("smoke: scenes %d frames %d step-failures %d non-finite-steps %d validation-messages %u\n", g_sceneCount,
+               frameNo, g_stepFailures, g_nonFinite, vmsgs);
         if (vmsgs > 0)
             exitCode = 1;
     }

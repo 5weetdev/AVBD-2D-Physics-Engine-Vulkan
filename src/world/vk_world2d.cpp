@@ -143,46 +143,42 @@ uint64_t VkWorld2D::ManBufs::bytes() const
 // ---------------------------------------------------------------------------
 std::vector<Buffer *> VkWorld2D::buffers()
 {
-    return {&m_pos,       &m_ang,        &m_initPos,   &m_initAng,    &m_inertPos,    &m_inertAng,
-            &m_vel,       &m_angVel,     &m_prevVel,   &m_moment,
-            &m_mass,      &m_awake,     &m_sleepTimer, &m_blocked,     &m_dynIdx,
-            &m_statIdx,   &m_savePos,    &m_saveAng,   &m_saveVel,    &m_saveAngVel,  &m_savePrevVel,
-            &m_saveAwake, &m_saveTimer,  &m_saveJPen,  &m_saveJLam,   &m_saveJBroken, &m_gridHead,
-            &m_gridNext,  &m_pairsRaw,   &m_pairsSorted, &m_ignore,   &m_counters,   &m_jA,
-            &m_jB,        &m_jRA,        &m_jRB,       &m_jC0,        &m_jPen,        &m_jLam,
-            &m_jAxis,     &m_jFrameA,    &m_jRest,     &m_jArm,       &m_jFrac,       &m_jForce,      &m_jBroken,
-            &m_restPos,   &m_restAng,    &m_cand,      &m_touchCount, &m_touchHash,   &m_snapCount,
-            &m_snapHash,  &m_wakeReq,    &m_saveRestPos, &m_saveRestAng, &m_saveCand,
-            &m_colorIndirect, &m_worldDev, &m_sBody,  &m_sType, &m_sOff, &m_sAng, &m_sRad, &m_sHalf, &m_sVR,
-            &m_sFric,     &m_verts,       &m_norms, &m_sFlags, &m_events, &m_impulses,   &m_bProps, &m_sCat, &m_sMask, &m_sGroup, &m_sMat,
-            &m_gridList,  &m_overList,
-            &m_ccdFlag,   &m_ccdList,    &m_ccdCount,  &m_ccdStat,    &m_ccdArgs,     &m_bShape,
-            &m_bExt,      &m_bBullet,    &m_movedCount, &m_movedDev, &m_qBox, &m_qHead, &m_qNext, &m_qBig, &m_qCount,
-            &m_qOutHitDev, &m_qOutIdsDev, &m_qOutCountsDev};
+    return {
+        &m_pos,        &m_ang,           &m_initPos,   &m_initAng,    &m_inertPos,    &m_inertAng,     &m_vel,
+        &m_angVel,     &m_prevVel,       &m_moment,    &m_mass,       &m_awake,       &m_sleepTimer,   &m_blocked,
+        &m_dynIdx,     &m_statIdx,       &m_savePos,   &m_saveAng,    &m_saveVel,     &m_saveAngVel,   &m_savePrevVel,
+        &m_saveAwake,  &m_saveTimer,     &m_saveJPen,  &m_saveJLam,   &m_saveJBroken, &m_gridHead,     &m_gridNext,
+        &m_pairsRaw,   &m_pairsSorted,   &m_ignore,    &m_counters,   &m_jA,          &m_jB,           &m_jRA,
+        &m_jRB,        &m_jC0,           &m_jPen,      &m_jLam,       &m_jAxis,       &m_jFrameA,      &m_jRest,
+        &m_jArm,       &m_jFrac,         &m_jForce,    &m_jBroken,    &m_restPos,     &m_restAng,      &m_cand,
+        &m_touchCount, &m_touchHash,     &m_snapCount, &m_snapHash,   &m_wakeReq,     &m_saveRestPos,  &m_saveRestAng,
+        &m_saveCand,   &m_colorIndirect, &m_worldDev,  &m_sBody,      &m_sType,       &m_sOff,         &m_sAng,
+        &m_sRad,       &m_sHalf,         &m_sVR,       &m_sFric,      &m_verts,       &m_norms,        &m_sFlags,
+        &m_events,     &m_impulses,      &m_bProps,    &m_sCat,       &m_sMask,       &m_sGroup,       &m_sMat,
+        &m_gridList,   &m_overList,      &m_ccdFlag,   &m_ccdList,    &m_ccdCount,    &m_ccdStat,      &m_ccdArgs,
+        &m_bShape,     &m_bExt,          &m_bBullet,   &m_movedCount, &m_movedDev,    &m_qBox,         &m_qHead,
+        &m_qNext,      &m_qBig,          &m_qCount,    &m_qOutHitDev, &m_qOutIdsDev,  &m_qOutCountsDev};
 }
 
 // Every buffer indexed by body, with its element size. Growth keeps the ones that carry state.
 std::vector<VkWorld2D::BodyBuf> VkWorld2D::bodyBuffers()
 {
-    return {{&m_pos, 8, true},       {&m_ang, 4, true},       {&m_initPos, 8, true},  {&m_initAng, 4, true},
-            {&m_inertPos, 8, true},  {&m_inertAng, 4, true},  {&m_vel, 8, true},      {&m_angVel, 4, true},
-            {&m_prevVel, 8, true},   {&m_moment, 4, true},
-            {&m_mass, 4, true},      {&m_bProps, 16, true},  {&m_awake, 1, true},    {&m_sleepTimer, 4, true},
-            {&m_blocked, 4, false},  {&m_dynIdx, 4, false},   {&m_statIdx, 4, false}, {&m_savePos, 8, false},
-            {&m_saveAng, 4, false},  {&m_saveVel, 8, false},  {&m_saveAngVel, 4, false},
-            {&m_savePrevVel, 8, false}, {&m_saveAwake, 1, false}, {&m_saveTimer, 4, false},
-            {&m_restPos, 8, true},   {&m_restAng, 4, true},   {&m_cand, 1, true},     {&m_touchCount, 4, false},
-            {&m_touchHash, 4, false}, {&m_snapCount, 4, true}, {&m_snapHash, 4, true}, {&m_wakeReq, 1, false},
-            {&m_saveRestPos, 8, false}, {&m_saveRestAng, 4, false}, {&m_saveCand, 1, false},
-            {&m_ccdFlag, 1, false},  {&m_ccdList, 4, false},  {&m_bShape, 8, true},   {&m_bExt, 8, true},
-            {&m_bBullet, 1, true}};
+    return {{&m_pos, 8, true},          {&m_ang, 4, true},          {&m_initPos, 8, true},    {&m_initAng, 4, true},
+            {&m_inertPos, 8, true},     {&m_inertAng, 4, true},     {&m_vel, 8, true},        {&m_angVel, 4, true},
+            {&m_prevVel, 8, true},      {&m_moment, 4, true},       {&m_mass, 4, true},       {&m_bProps, 16, true},
+            {&m_awake, 1, true},        {&m_sleepTimer, 4, true},   {&m_blocked, 4, false},   {&m_dynIdx, 4, false},
+            {&m_statIdx, 4, false},     {&m_savePos, 8, false},     {&m_saveAng, 4, false},   {&m_saveVel, 8, false},
+            {&m_saveAngVel, 4, false},  {&m_savePrevVel, 8, false}, {&m_saveAwake, 1, false}, {&m_saveTimer, 4, false},
+            {&m_restPos, 8, true},      {&m_restAng, 4, true},      {&m_cand, 1, true},       {&m_touchCount, 4, false},
+            {&m_touchHash, 4, false},   {&m_snapCount, 4, true},    {&m_snapHash, 4, true},   {&m_wakeReq, 1, false},
+            {&m_saveRestPos, 8, false}, {&m_saveRestAng, 4, false}, {&m_saveCand, 1, false},  {&m_ccdFlag, 1, false},
+            {&m_ccdList, 4, false},     {&m_bShape, 8, true},       {&m_bExt, 8, true},       {&m_bBullet, 1, true}};
 }
 
 void VkWorld2D::createPipelines()
 {
-    auto mk = [&](Pipeline &p, const uint32_t *spv, size_t words, const char *entry) {
-        p.init(m_dev, m_layout, spv, words, entry, entry);
-    };
+    auto mk = [&](Pipeline &p, const uint32_t *spv, size_t words, const char *entry)
+    { p.init(m_dev, m_layout, spv, words, entry, entry); };
     mk(m_integrate, integrate2d_spirv, integrate2d_spirv_words, "csIntegrate2D");
     mk(m_velocity, integrate2d_spirv, integrate2d_spirv_words, "csVelocity2D");
     mk(m_guard, integrate2d_spirv, integrate2d_spirv_words, "csGuard2D");
@@ -265,8 +261,7 @@ void VkWorld2D::init()
         m_man[0].init(m_dev);
         m_man[1].init(m_dev);
         m_worldDev.resize(sizeof(World2Gpu));
-        m_worldStage.init(m_dev, sizeof(World2Gpu), VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                          MappedBuffer::HostAccess::Write);
+        m_worldStage.init(m_dev, sizeof(World2Gpu), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, MappedBuffer::HostAccess::Write);
         m_grabStage.init(m_dev, (VkDeviceSize)kGrabSlotCount * sizeof(Vec2), VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                          MappedBuffer::HostAccess::Write);
     }
@@ -297,8 +292,9 @@ void VkWorld2D::destroy()
         vkDeviceWaitIdle(m_dev.device());
     m_worldStage.destroy();
     m_grabStage.destroy();
-    for (MappedBuffer *b : {&m_statusHost, &m_posHost, &m_angHost, &m_velHost, &m_awakeHost, &m_colorHost, &m_eventsHost, &m_ccdHost,
-                            &m_qRays, &m_qAabbs, &m_qOutHit, &m_qOutIds, &m_qOutCounts, &m_bPatchBuf, &m_jPatchBuf, &m_movedHost, &m_movedCountHost, &m_jForceHost, &m_upStage})
+    for (MappedBuffer *b : {&m_statusHost, &m_posHost, &m_angHost, &m_velHost, &m_awakeHost, &m_colorHost,
+                            &m_eventsHost, &m_ccdHost, &m_qRays, &m_qAabbs, &m_qOutHit, &m_qOutIds, &m_qOutCounts,
+                            &m_bPatchBuf, &m_jPatchBuf, &m_movedHost, &m_movedCountHost, &m_jForceHost, &m_upStage})
         b->destroy();
     m_upOps.clear();
     m_upData.clear();
@@ -314,12 +310,16 @@ void VkWorld2D::destroy()
     m_select.destroy();
     m_primPl.destroy();
     m_csPl.destroy();
-    for (Pipeline *p : {&m_integrate, &m_gravityX, &m_velocity, &m_guard, &m_velocityGuard, &m_ccdFlagPl, &m_ccdArgsPl, &m_ccdPl, &m_gridClear, &m_gridInsert, &m_findPairs, &m_oversizePairs,
-                        &m_narrowphase, &m_jointInit, &m_integrateJoint, &m_jointDual, &m_colorArgs, &m_primal, &m_dual, &m_dualAll, &m_iterate, &m_sortSmall, &m_buildSmall,
-                        &m_sleepPrep, &m_sleepBlockPre, &m_sleepMark, &m_sleepNbrC, &m_sleepNbrJ,
-                        &m_sleepCommit, &m_touchClear, &m_touchAccumC, &m_touchAccumJ, &m_wakeReqC, &m_wakeReqJ,
-                        &m_wakeLost, &m_wakeApply, &m_wakeAll, &m_eventBegin, &m_eventEnd, &m_eventHit,
-                        &m_eventJoint, &m_applyImpulses, &m_queryClear, &m_queryInsert, &m_queryRays, &m_queryAabbs, &m_applyBodyPatches, &m_applyJointPatches, &m_compactMoved})
+    for (Pipeline *p :
+         {&m_integrate,     &m_gravityX,    &m_velocity,       &m_guard,      &m_velocityGuard,    &m_ccdFlagPl,
+          &m_ccdArgsPl,     &m_ccdPl,       &m_gridClear,      &m_gridInsert, &m_findPairs,        &m_oversizePairs,
+          &m_narrowphase,   &m_jointInit,   &m_integrateJoint, &m_jointDual,  &m_colorArgs,        &m_primal,
+          &m_dual,          &m_dualAll,     &m_iterate,        &m_sortSmall,  &m_buildSmall,       &m_sleepPrep,
+          &m_sleepBlockPre, &m_sleepMark,   &m_sleepNbrC,      &m_sleepNbrJ,  &m_sleepCommit,      &m_touchClear,
+          &m_touchAccumC,   &m_touchAccumJ, &m_wakeReqC,       &m_wakeReqJ,   &m_wakeLost,         &m_wakeApply,
+          &m_wakeAll,       &m_eventBegin,  &m_eventEnd,       &m_eventHit,   &m_eventJoint,       &m_applyImpulses,
+          &m_queryClear,    &m_queryInsert, &m_queryRays,      &m_queryAabbs, &m_applyBodyPatches, &m_applyJointPatches,
+          &m_compactMoved})
         p->destroy();
     m_layout.destroy();
     m_dev.shutdown();
@@ -620,12 +620,11 @@ void VkWorld2D::sizeJointBuffers(int slotCap, bool preserve)
         size_t elem;
         bool keep;
     };
-    for (const E &e : {E{&m_jA, 4, true}, E{&m_jB, 4, true}, E{&m_jRA, 8, true}, E{&m_jRB, 8, true},
-                       E{&m_jC0, 36, true}, E{&m_jPen, 36, true}, E{&m_jLam, 36, true},
-                       E{&m_jAxis, 3 * sizeof(JointAxis2), true}, E{&m_jFrameA, 4, true}, E{&m_jRest, 4, true},
-                       E{&m_jArm, 4, true}, E{&m_jFrac, 4, true}, E{&m_jForce, 12, true},
-                       E{&m_jBroken, 1, true}, E{&m_saveJPen, 36, false}, E{&m_saveJLam, 36, false},
-                       E{&m_saveJBroken, 1, false}})
+    for (const E &e :
+         {E{&m_jA, 4, true}, E{&m_jB, 4, true}, E{&m_jRA, 8, true}, E{&m_jRB, 8, true}, E{&m_jC0, 36, true},
+          E{&m_jPen, 36, true}, E{&m_jLam, 36, true}, E{&m_jAxis, 3 * sizeof(JointAxis2), true}, E{&m_jFrameA, 4, true},
+          E{&m_jRest, 4, true}, E{&m_jArm, 4, true}, E{&m_jFrac, 4, true}, E{&m_jForce, 12, true},
+          E{&m_jBroken, 1, true}, E{&m_saveJPen, 36, false}, E{&m_saveJLam, 36, false}, E{&m_saveJBroken, 1, false}})
         sizeBuf(*e.b, J * e.elem, preserve && e.keep);
     m_jForceHost.destroy();
     m_jForceHost.init(m_dev, J * 12, VK_BUFFER_USAGE_TRANSFER_DST_BIT, MappedBuffer::HostAccess::Read);
@@ -1292,11 +1291,13 @@ void VkWorld2D::recordPass(int pass, int colorBound, int jpRounds)
         recordUploads();
     const VkDeviceAddress wAddr = m_worldDev.address();
 
-    auto args = [&](uint32_t a) {
+    auto args = [&](uint32_t a)
+    {
         DispatchArgs2Gpu da{wAddr, a, 0u, 0u, 0u};
         return m_ring.write(&da, sizeof(da));
     };
-    auto disp = [&](Pipeline &pl, int threads, int group, uint32_t a = 0) {
+    auto disp = [&](Pipeline &pl, int threads, int group, uint32_t a = 0)
+    {
         const uint32_t groups = divUp(threads, group);
         if (groups == 0)
             return;
@@ -1448,26 +1449,26 @@ void VkWorld2D::recordPass(int pass, int colorBound, int jpRounds)
     }
     else
     {
-    m_cmd.fill(m_colorIndirect, 0u);
-    m_cmd.barrier();
-    disp(m_colorArgs, colorBound, 128);
-    m_cmd.barrierIndirect();
-    m_cmd.writeTimestamp(4);
+        m_cmd.fill(m_colorIndirect, 0u);
+        m_cmd.barrier();
+        disp(m_colorArgs, colorBound, 128);
+        m_cmd.barrierIndirect();
+        m_cmd.writeTimestamp(4);
 
-    // 5. Iterations: Gauss-Seidel over the colours, then the dual update.
-    for (int it = 0; it < iters; it++)
-    {
-        for (int c = 0; c < colorBound; c++)
+        // 5. Iterations: Gauss-Seidel over the colours, then the dual update.
+        for (int it = 0; it < iters; it++)
         {
-            m_cmd.dispatchIndirect(m_primal, m_colorIndirect, (VkDeviceSize)c * 12, args((uint32_t)c));
-            m_cmd.barrier();
+            for (int c = 0; c < colorBound; c++)
+            {
+                m_cmd.dispatchIndirect(m_primal, m_colorIndirect, (VkDeviceSize)c * 12, args((uint32_t)c));
+                m_cmd.barrier();
+            }
+            if (it < kMaxTimedIterations)
+                m_cmd.writeTimestamp((uint32_t)(5 + 2 * it));
+            disp(m_dualAll, std::max(m_pairCap, m_jointSlots), 128);
+            if (it < kMaxTimedIterations)
+                m_cmd.writeTimestamp((uint32_t)(6 + 2 * it));
         }
-        if (it < kMaxTimedIterations)
-            m_cmd.writeTimestamp((uint32_t)(5 + 2 * it));
-        disp(m_dualAll, std::max(m_pairCap, m_jointSlots), 128);
-        if (it < kMaxTimedIterations)
-            m_cmd.writeTimestamp((uint32_t)(6 + 2 * it));
-    }
     }
 
     // 6. Velocities, the guard, then sleep.
@@ -1596,7 +1597,8 @@ void VkWorld2D::refreshHostCopies()
 void VkWorld2D::readTimings(int iterations)
 {
     const int timed = std::min(std::max(iterations, 1), kMaxTimedIterations);
-    auto ms = [&](uint32_t a, uint32_t b) {
+    auto ms = [&](uint32_t a, uint32_t b)
+    {
         const double ns = m_cmd.timestampDeltaNs(a, b);
         return ns < 0.0 ? -1.0f : (float)(ns * 1e-6);
     };
@@ -1707,7 +1709,8 @@ StepResult2D VkWorld2D::stepEnd()
 
         const bool pairShort = pairsReq > m_pairCap;
         const bool contactShort = contactsReq > m_contactCap;
-        const bool jpShort = !m_lastSmallBuild && !m_constraints.jpConverged() && jpRounds < VkConstraints::kMaxJpRounds;
+        const bool jpShort =
+            !m_lastSmallBuild && !m_constraints.jpConverged() && jpRounds < VkConstraints::kMaxJpRounds;
         const bool colorShort = colorBound < kMaxColors && builtColors > colorBound;
 
         if (pairShort || contactShort)
@@ -2255,7 +2258,8 @@ bool VkWorld2D::grabBegin(Vec2 p, const GrabOptions &opt)
             m_jBroken.readback(broken.data(), (VkDeviceSize)m_jointCount, (VkDeviceSize)kGrabSlotCount);
             std::vector<std::vector<int>> adj;
             std::vector<int> ids((size_t)m_bodyCount, -1);
-            auto idOf = [&](int b) {
+            auto idOf = [&](int b)
+            {
                 if (ids[(size_t)b] < 0)
                 {
                     ids[(size_t)b] = (int)adj.size();
@@ -2558,7 +2562,8 @@ bool VkWorld2D::runQueryBatch(bool rays, const float *in, int count, uint64_t ca
     while (table < 2u * (uint32_t)std::max(m_gridCount, 1))
         table <<= 1;
 
-    auto sz = [&](Buffer &b, size_t bytes) {
+    auto sz = [&](Buffer &b, size_t bytes)
+    {
         if (b.size() < bytes)
             b.resize(std::max<size_t>(bytes + bytes / 2, 256));
     };
@@ -2656,14 +2661,16 @@ bool VkWorld2D::castRaysBatch(const RayQuery2D *rays, int count, uint64_t cat, u
         {
             RayHit2D best;
             bool found = false;
-            m_query.castRay(queryView(), rays[i].origin, rays[i].translation, [&](const RayHit2D &h) {
-                const size_t s = (size_t)h.shape;
-                if ((m_scene.shCat[s] & mask) == 0 || (cat & m_scene.shMask[s]) == 0)
-                    return -1.0f;
-                best = h;
-                found = true;
-                return h.fraction;
-            });
+            m_query.castRay(queryView(), rays[i].origin, rays[i].translation,
+                            [&](const RayHit2D &h)
+                            {
+                                const size_t s = (size_t)h.shape;
+                                if ((m_scene.shCat[s] & mask) == 0 || (cat & m_scene.shMask[s]) == 0)
+                                    return -1.0f;
+                                best = h;
+                                found = true;
+                                return h.fraction;
+                            });
             if (found)
             {
                 out[i].shape = best.shape;
@@ -2704,15 +2711,18 @@ bool VkWorld2D::overlapAabbsBatch(const Vec2 *lo, const Vec2 *hi, int count, uin
         for (int i = 0; i < count; i++)
         {
             int n = 0;
-            m_query.overlapAABB(queryView(), lo[i], hi[i], [&](int s) {
-                if ((m_scene.shCat[(size_t)s] & mask) != 0 && (cat & m_scene.shMask[(size_t)s]) != 0)
-                {
-                    if (n < maxPer)
-                        outIds[(size_t)i * (size_t)maxPer + (size_t)n] = s;
-                    n++;
-                }
-                return true;
-            });
+            m_query.overlapAABB(queryView(), lo[i], hi[i],
+                                [&](int s)
+                                {
+                                    if ((m_scene.shCat[(size_t)s] & mask) != 0 &&
+                                        (cat & m_scene.shMask[(size_t)s]) != 0)
+                                    {
+                                        if (n < maxPer)
+                                            outIds[(size_t)i * (size_t)maxPer + (size_t)n] = s;
+                                        n++;
+                                    }
+                                    return true;
+                                });
             outCounts[i] = n;
         }
         return false;

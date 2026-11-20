@@ -10,13 +10,15 @@
 #include "avbd2d.h"
 
 /* Every call returns Avbd2dResult; stop on anything but AVBD2D_OK. */
-#define CHECK(call)                                                             \
-    do {                                                                        \
-        Avbd2dResult check_r_ = (call);                                         \
-        if (check_r_ != AVBD2D_OK) {                                            \
-            fprintf(stderr, "%s failed: %s\n", #call, avbd2d_result_string(check_r_)); \
-            exit(1);                                                            \
-        }                                                                       \
+#define CHECK(call)                                                                                                    \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        Avbd2dResult check_r_ = (call);                                                                                \
+        if (check_r_ != AVBD2D_OK)                                                                                     \
+        {                                                                                                              \
+            fprintf(stderr, "%s failed: %s\n", #call, avbd2d_result_string(check_r_));                                 \
+            exit(1);                                                                                                   \
+        }                                                                                                              \
     } while (0)
 
 int main(void)
@@ -57,10 +59,12 @@ int main(void)
     CHECK(avbd2d_create_polygon_shape(box, &shapeDef, &boxShape, &boxShapeId));
 
     /* 4. Step 120 frames (two seconds) and read the box's origin every 20 frames. */
-    for (int frame = 1; frame <= 120; ++frame) {
+    for (int frame = 1; frame <= 120; ++frame)
+    {
         CHECK(avbd2d_step(world));
 
-        if (frame % 20 == 0) {
+        if (frame % 20 == 0)
+        {
             Avbd2dVec2 p;
             CHECK(avbd2d_body_get_position(box, &p));
             printf("frame %3d  y = %.3f\n", frame, p.y);

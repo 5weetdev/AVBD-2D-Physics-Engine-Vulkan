@@ -103,11 +103,9 @@ public:
     void reserve(int maxBodies, int maxManifolds, int maxForces = 0);
 
     void build(ConstraintsPipelines &pl, PrimitivesPipelines &prim, RadixScratch &radix,
-               const VkConstraintsBodyRefs &bodies,
-               const VkConstraintsManifoldRefs &manifolds,
-               const VkConstraintsJointRefs &joints,
-               const VkConstraintsSpringRefs &springs,
-               const Buffer &dynamicIdx, int dynamicCount, VkDeviceAddress dynamicCountAddr = 0);
+               const VkConstraintsBodyRefs &bodies, const VkConstraintsManifoldRefs &manifolds,
+               const VkConstraintsJointRefs &joints, const VkConstraintsSpringRefs &springs, const Buffer &dynamicIdx,
+               int dynamicCount, VkDeviceAddress dynamicCountAddr = 0);
 
     // dynamicCountAddr (M4, here and below): 0 means `dynamicCount` is exact. Non-zero is
     // the device address of an int32 live count and `dynamicCount` is only its upper bound:
@@ -120,10 +118,9 @@ public:
     // after the submission and reads back the entry count, the convergence round and
     // the colour ranges.
     void record(CommandList &cmd, HostRingBuffer &ring, ConstraintsPipelines &pl, PrimitivesPipelines &prim,
-                RadixScratch &radix, const VkConstraintsBodyRefs &bodies,
-                const VkConstraintsManifoldRefs &manifolds, const VkConstraintsJointRefs &joints,
-                const VkConstraintsSpringRefs &springs, const Buffer &dynamicIdx, int dynamicCount,
-                VkDeviceAddress dynamicCountAddr = 0);
+                RadixScratch &radix, const VkConstraintsBodyRefs &bodies, const VkConstraintsManifoldRefs &manifolds,
+                const VkConstraintsJointRefs &joints, const VkConstraintsSpringRefs &springs, const Buffer &dynamicIdx,
+                int dynamicCount, VkDeviceAddress dynamicCountAddr = 0);
     void finish();
     int entryCapacity() const { return maxEntries; }
 
@@ -208,9 +205,8 @@ public:
     uint64_t bytesAllocated() const
     {
         const Buffer *all[] = {
-            &rawKeys, &sortedKeys, &rawIsA, &sortedIsA, &rowStart, &rowEnd, &counter,
-            &color, &colorKey, &colorKeySorted, &bodyByColor, &bodyScratch,
-            &colorRanges, &remaining,
+            &rawKeys, &sortedKeys, &rawIsA,         &sortedIsA,   &rowStart,    &rowEnd,      &counter,
+            &color,   &colorKey,   &colorKeySorted, &bodyByColor, &bodyScratch, &colorRanges, &remaining,
         };
         uint64_t total = 0;
         for (const Buffer *b : all)
@@ -247,9 +243,9 @@ private:
     int colors = 0;
     int rounds = 0;
     bool m_recorded = false;
-    int m_recordedRounds = 0; // rounds recorded into the pending submission
+    int m_recordedRounds = 0;  // rounds recorded into the pending submission
     float m_peakRounds = 0.0f; // decaying max of m_lastRounds, for jpBound()
-    int m_lastRounds = 0;     // convergence round of the last build, for jpBound()
+    int m_lastRounds = 0;      // convergence round of the last build, for jpBound()
 
     void finishColoring(int recordedRounds);
 };

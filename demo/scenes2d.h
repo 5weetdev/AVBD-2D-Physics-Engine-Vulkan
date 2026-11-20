@@ -21,7 +21,10 @@ inline uint32_t lcg(uint32_t &s)
     s = s * 1664525u + 1013904223u;
     return s >> 8;
 }
-inline float rand01(uint32_t &s) { return (float)(lcg(s) & 0xFFFF) / 65535.0f; }
+inline float rand01(uint32_t &s)
+{
+    return (float)(lcg(s) & 0xFFFF) / 65535.0f;
+}
 
 inline int addGround(Scene2D &s, float width = 200.0f, float mu = 0.6f)
 {
@@ -112,8 +115,8 @@ inline void chainBridge(Scene2D &s)
 
     // Load.
     for (int i = 0; i < 6; i++)
-        s.addBox(Vec2(-5.0f + 2.0f * (float)i, pinY + 3.0f + 0.3f * (float)(i % 2)), 0.1f * (float)i,
-                 Vec2(0.9f, 0.9f), 1.0f, 0.5f);
+        s.addBox(Vec2(-5.0f + 2.0f * (float)i, pinY + 3.0f + 0.3f * (float)(i % 2)), 0.1f * (float)i, Vec2(0.9f, 0.9f),
+                 1.0f, 0.5f);
     s.addCircle(Vec2(0.0f, pinY + 6.0f), 0.8f, 1.5f, 0.4f);
 
     // Chain: pinned at (-22, 14), laid out straight toward +x, falls into a swing.
@@ -157,17 +160,29 @@ inline void pileGrid(Scene2D &s, int cols, int rows, float spacing, float camHei
                 s.addCircle(p, spacing * (0.23f + 0.09f * rand01(seed)), 1.0f, 0.4f);
             else
                 s.addBox(p, kPi * rand01(seed),
-                         Vec2(spacing * (0.46f + 0.20f * rand01(seed)), spacing * (0.46f + 0.20f * rand01(seed))),
-                         1.0f, 0.5f);
+                         Vec2(spacing * (0.46f + 0.20f * rand01(seed)), spacing * (0.46f + 0.20f * rand01(seed))), 1.0f,
+                         0.5f);
         }
     s.cameraCenter = Vec2(0.0f, camHeight * 0.4f);
     s.cameraHeight = camHeight;
 }
 
-inline void pile10k(Scene2D &s) { pileGrid(s, 100, 100, 0.6f, 50.0f); }
-inline void pile100k(Scene2D &s) { pileGrid(s, 400, 250, 0.5f, 110.0f); }
-inline void pile200k(Scene2D &s) { pileGrid(s, 500, 400, 0.5f, 170.0f); }
-inline void pile500k(Scene2D &s) { pileGrid(s, 800, 625, 0.5f, 270.0f); }
+inline void pile10k(Scene2D &s)
+{
+    pileGrid(s, 100, 100, 0.6f, 50.0f);
+}
+inline void pile100k(Scene2D &s)
+{
+    pileGrid(s, 400, 250, 0.5f, 110.0f);
+}
+inline void pile200k(Scene2D &s)
+{
+    pileGrid(s, 500, 400, 0.5f, 170.0f);
+}
+inline void pile500k(Scene2D &s)
+{
+    pileGrid(s, 800, 625, 0.5f, 270.0f);
+}
 
 // An empty container twice the 500k pile's size in each direction (802 m wide, 745 m of wall):
 // a floor and two walls, open at the top, and no bodies.
@@ -193,10 +208,14 @@ inline void towers20k(Scene2D &s)
     addGround(s, 400.0f, 0.8f);
     const int towers = 10, layers = 125, wide = 16;
     const float spacing = 20.0f, brickH = 0.5f;
-    const float breakForce = 3000.0f;   // N; a base weld carries roughly 300 N
-    const float angStiffness = 1.0e6f;  // stiff angular spring
+    const float breakForce = 3000.0f;  // N; a base weld carries roughly 300 N
+    const float angStiffness = 1.0e6f; // stiff angular spring
 
-    struct Brick { int id; float x0, x1; };
+    struct Brick
+    {
+        int id;
+        float x0, x1;
+    };
     for (int t = 0; t < towers; t++)
     {
         const float cx = ((float)t - 0.5f * (float)(towers - 1)) * spacing;
@@ -209,7 +228,8 @@ inline void towers20k(Scene2D &s)
             // 15 whole bricks between, so every brick straddles two below it.
             std::vector<Brick> row;
             float x = left;
-            auto laid = [&](float w) {
+            auto laid = [&](float w)
+            {
                 const int id = s.addBox(Vec2(x + 0.5f * w, y), 0.0f, Vec2(w, brickH), 1.0f, 0.6f);
                 row.push_back({id, x, x + w});
                 x += w;
@@ -276,13 +296,15 @@ inline int addRagdoll(Scene2D &s, Vec2 at, float scale, float breakForce, uint32
     boneDef.friction = mu;
     boneDef.categoryBits = 2;
     boneDef.maskBits = 1 | 2;
-    auto bone = [&](float y0, float y1, float r, uint32_t c) {
+    auto bone = [&](float y0, float y1, float r, uint32_t c)
+    {
         const int id = s.addCapsule(P(0.0f, y0), P(0.0f, y1), r * k, 1.0f, mu, Vec2(), 0.0f, c);
         s.setShapeDef(id, boneDef);
         return id;
     };
     // A lower leg: the capsule bone plus the foot (human.c's footPolygon), one body.
-    auto lowerLeg = [&](uint32_t c) {
+    auto lowerLeg = [&](uint32_t c)
+    {
         const Vec2 foot[4] = {Vec2(-0.03f * k, -0.185f * k), Vec2(0.11f * k, -0.185f * k), Vec2(0.11f * k, -0.16f * k),
                               Vec2(-0.03f * k, -0.14f * k)};
         ShapeDef2D footDef = boneDef;
@@ -297,7 +319,8 @@ inline int addRagdoll(Scene2D &s, Vec2 at, float scale, float breakForce, uint32
         return s.endBody();
     };
     // A revolute joint with Box2D's limit (in units of pi), friction motor and spring.
-    auto joint = [&](int a, int b, Vec2 pivot, float lower, float upper, float frictionScale, float reference = 0.0f) {
+    auto joint = [&](int a, int b, Vec2 pivot, float lower, float upper, float frictionScale, float reference = 0.0f)
+    {
         Scene2D::JointDef2D d = s.makeJointDef(Scene2D::JointType2D::Revolute, a, b, pivot);
         d.referenceAngle = reference;
         d.enableLimit = true;
@@ -356,7 +379,8 @@ inline int addPoseRagdoll(Scene2D &s, Vec2 at, float scale, float breakForce, ui
     auto P = [&](float x, float y) { return Vec2(at.x + x * k, at.y + y * k); };
     // Capsule from a joint (x0, y0) running `len` along a direction `ang` off straight down, sign
     // `side` (-1 left, +1 right). Returns the body and writes the far end.
-    auto limb = [&](float x0, float y0, float len, float ang, float side, float r, uint32_t c, float &x1, float &y1) {
+    auto limb = [&](float x0, float y0, float len, float ang, float side, float r, uint32_t c, float &x1, float &y1)
+    {
         x1 = x0 + side * len * std::sin(ang);
         y1 = y0 - len * std::cos(ang);
         // The core stops a radius short of each joint so the rounded ends just touch there
@@ -365,7 +389,8 @@ inline int addPoseRagdoll(Scene2D &s, Vec2 at, float scale, float breakForce, ui
         return s.addCapsule(P(x0 + dx * r, y0 + dy * r), P(x1 - dx * r, y1 - dy * r), r * k, 1.0f, mu, Vec2(), 0.0f, c);
     };
 
-    const int torso = s.addCapsule(P(0.0f, hipY + 0.10f), P(0.0f, hipY + 0.35f), 0.10f * k, 1.0f, mu, Vec2(), 0.0f, shirt);
+    const int torso =
+        s.addCapsule(P(0.0f, hipY + 0.10f), P(0.0f, hipY + 0.35f), 0.10f * k, 1.0f, mu, Vec2(), 0.0f, shirt);
     const int head = s.addCircle(P(0.0f, hipY + 0.545f), 0.095f * k, 1.0f, mu, Vec2(), 0.0f, skin);
     s.addRevoluteAt(torso, head, P(0.0f, hipY + 0.45f), true, breakForce);
     for (int i = 0; i < 2; i++)
@@ -399,7 +424,8 @@ inline void ragdolls(Scene2D &s)
         {
             const float x = ((float)c - 0.5f * (float)(cols - 1)) * 2.2f;
             const float y = 6.0f + (float)r * 3.2f + 0.8f * rand01(seed);
-            const uint32_t shirt = rgb8(0.4f + 0.6f * rand01(seed), 0.3f + 0.5f * rand01(seed), 0.3f + 0.6f * rand01(seed));
+            const uint32_t shirt =
+                rgb8(0.4f + 0.6f * rand01(seed), 0.3f + 0.5f * rand01(seed), 0.3f + 0.6f * rand01(seed));
             addRagdoll(s, Vec2(x, y), 1.4f, 150.0f, shirt);
         }
     s.cameraCenter = Vec2(0.0f, 7.0f);
@@ -441,8 +467,8 @@ inline void shapes(Scene2D &s)
     s.addSegment(Vec2(5.0f, 8.0f), Vec2(1.2f, 4.5f));
     // Wheels: a 0.6 m circle 0.3 m off the body origin, so they wobble as they roll.
     for (int i = 0; i < 5; i++)
-        s.addOffsetCircle(Vec2(7.0f + 1.5f * (float)i, 0.9f + 2.0f * (float)i), 0.0f, Vec2(0.3f, 0.0f), 0.6f, 1.0f, 0.6f,
-                          Vec2(-2.0f, 0.0f));
+        s.addOffsetCircle(Vec2(7.0f + 1.5f * (float)i, 0.9f + 2.0f * (float)i), 0.0f, Vec2(0.3f, 0.0f), 0.6f, 1.0f,
+                          0.6f, Vec2(-2.0f, 0.0f));
     s.cameraCenter = Vec2(0.0f, 7.0f);
     s.cameraHeight = 22.0f;
 }
@@ -538,12 +564,14 @@ inline void joints(Scene2D &s)
     // Car: chassis on two wheel joints, rear wheel driven (clockwise = forward, +x).
     {
         const float x0 = -14.0f, y0 = 0.9f;
-        const int chassis = s.addBox(Vec2(x0, y0 + 0.5f), 0.0f, Vec2(2.6f, 0.5f), 1.0f, 0.4f, Vec2(), 0.0f, rgb8(0.9f, 0.4f, 0.2f));
+        const int chassis =
+            s.addBox(Vec2(x0, y0 + 0.5f), 0.0f, Vec2(2.6f, 0.5f), 1.0f, 0.4f, Vec2(), 0.0f, rgb8(0.9f, 0.4f, 0.2f));
         for (int i = 0; i < 2; i++)
         {
             const float wx = x0 + (i == 0 ? -0.95f : 0.95f);
             const int wheel = s.addCircle(Vec2(wx, y0), 0.4f, 1.0f, 1.0f, Vec2(), 0.0f, rgb8(0.2f, 0.2f, 0.25f));
-            Scene2D::JointDef2D d = s.makeJointDef(Scene2D::JointType2D::Wheel, chassis, wheel, Vec2(wx, y0), Vec2(0.0f, 1.0f));
+            Scene2D::JointDef2D d =
+                s.makeJointDef(Scene2D::JointType2D::Wheel, chassis, wheel, Vec2(wx, y0), Vec2(0.0f, 1.0f));
             d.enableSpring = true;
             d.hertz = 4.0f;
             d.dampingRatio = 0.7f;
@@ -556,14 +584,16 @@ inline void joints(Scene2D &s)
             s.addJoint(d);
         }
         for (int i = 0; i < 7; i++)
-            s.addBox(Vec2(-9.0f + 2.2f * (float)i, 0.08f), 0.0f, Vec2(0.9f, 0.16f + 0.05f * (float)(i % 3)), 0.0f, 0.8f);
+            s.addBox(Vec2(-9.0f + 2.2f * (float)i, 0.08f), 0.0f, Vec2(0.9f, 0.16f + 0.05f * (float)(i % 3)), 0.0f,
+                     0.8f);
     }
 
     // Elevator: a platform on a prismatic joint to the world, motor driven up to its limit.
     {
         const int base = s.addBox(Vec2(10.0f, 0.15f), 0.0f, Vec2(2.4f, 0.3f), 0.0f);
         (void)base;
-        const int platform = s.addBox(Vec2(10.0f, 0.6f), 0.0f, Vec2(2.0f, 0.3f), 2.0f, 0.8f, Vec2(), 0.0f, rgb8(0.3f, 0.6f, 0.9f));
+        const int platform =
+            s.addBox(Vec2(10.0f, 0.6f), 0.0f, Vec2(2.0f, 0.3f), 2.0f, 0.8f, Vec2(), 0.0f, rgb8(0.3f, 0.6f, 0.9f));
         s.addPrismaticAt(-1, platform, Vec2(10.0f, 0.6f), Vec2(0.0f, 1.0f), true, 0.0f, 5.0f, true, 1.2f, 400.0f);
         for (int i = 0; i < 3; i++)
             s.addBox(Vec2(9.6f + 0.4f * (float)i, 1.1f + 0.0f * (float)i), 0.0f, Vec2(0.5f, 0.5f), 1.0f, 0.6f);
@@ -589,11 +619,13 @@ inline void joints(Scene2D &s)
     // A spring distance joint (a bouncing box) and a motor joint holding a box near a target.
     {
         const int anchor = s.addBox(Vec2(2.0f, 10.0f), 0.0f, Vec2(0.4f, 0.4f), 0.0f);
-        const int bob = s.addBox(Vec2(2.0f, 6.5f), 0.0f, Vec2(0.8f, 0.8f), 1.0f, 0.5f, Vec2(), 0.0f, rgb8(0.4f, 0.8f, 0.4f));
+        const int bob =
+            s.addBox(Vec2(2.0f, 6.5f), 0.0f, Vec2(0.8f, 0.8f), 1.0f, 0.5f, Vec2(), 0.0f, rgb8(0.4f, 0.8f, 0.4f));
         s.addDistanceJoint(anchor, bob, Vec2(2.0f, 10.0f), Vec2(2.0f, 6.5f), 3.0f, true, 1.5f, 0.5f);
 
         const int holder = s.addBox(Vec2(5.5f, 10.0f), 0.0f, Vec2(0.4f, 0.4f), 0.0f);
-        const int held = s.addBox(Vec2(5.5f, 8.0f), 0.3f, Vec2(0.8f, 0.8f), 1.0f, 0.5f, Vec2(), 0.0f, rgb8(0.8f, 0.5f, 0.8f));
+        const int held =
+            s.addBox(Vec2(5.5f, 8.0f), 0.3f, Vec2(0.8f, 0.8f), 1.0f, 0.5f, Vec2(), 0.0f, rgb8(0.8f, 0.5f, 0.8f));
         s.addMotorJoint(holder, held, Vec2(0.0f, -1.5f), 0.0f, 40.0f, 10.0f);
     }
     s.cameraCenter = Vec2(0.0f, 5.5f);
@@ -693,7 +725,8 @@ inline void sensorFunnel(Scene2D &s)
     addGround(s);
     s.addBox(Vec2(-4.0f, 9.0f), -0.6f, Vec2(8.0f, 0.4f), 0.0f);
     s.addBox(Vec2(4.0f, 9.0f), 0.6f, Vec2(8.0f, 0.4f), 0.0f);
-    const int sensor = s.addBox(Vec2(0.0f, 4.0f), 0.0f, Vec2(3.0f, 1.5f), 0.0f, 0.5f, Vec2(), 0.0f, rgb8(0.3f, 0.8f, 0.4f));
+    const int sensor =
+        s.addBox(Vec2(0.0f, 4.0f), 0.0f, Vec2(3.0f, 1.5f), 0.0f, 0.5f, Vec2(), 0.0f, rgb8(0.3f, 0.8f, 0.4f));
     s.setSensor(sensor);
     uint32_t seed = 17u;
     for (int i = 0; i < 48; i++)
@@ -722,8 +755,8 @@ inline void continuous(Scene2D &s)
     s.addBox(Vec2(-6.0f, 7.5f), 0.0f, Vec2(0.3f, 0.3f), 1.0f, 0.3f, Vec2(120.0f, 0.0f), 0.0f, rgb8(0.3f, 0.6f, 0.9f));
     const int crate = s.addBox(Vec2(-1.0f, 0.5f), 0.0f, Vec2(0.5f, 1.0f), 1.0f, 0.5f);
     (void)crate;
-    const int bullet = s.addCircle(Vec2(-6.0f, 0.4f), 0.1f, 1.0f, 0.3f, Vec2(150.0f, 0.0f), 0.0f,
-                                   rgb8(0.9f, 0.1f, 0.1f));
+    const int bullet =
+        s.addCircle(Vec2(-6.0f, 0.4f), 0.1f, 1.0f, 0.3f, Vec2(150.0f, 0.0f), 0.0f, rgb8(0.9f, 0.1f, 0.1f));
     s.setBullet(bullet);
     s.cameraCenter = Vec2(1.0f, 4.0f);
     s.cameraHeight = 14.0f;

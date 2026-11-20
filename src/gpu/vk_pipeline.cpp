@@ -39,7 +39,7 @@ void PipelineLayout::destroy()
 }
 
 void Pipeline::init(Device &dev, PipelineLayout &layout, const uint32_t *spirv, size_t spirvWords,
-                     const char *entryPoint, const char *debugName)
+                    const char *entryPoint, const char *debugName)
 {
     m_dev = &dev;
     m_layout = layout.handle();

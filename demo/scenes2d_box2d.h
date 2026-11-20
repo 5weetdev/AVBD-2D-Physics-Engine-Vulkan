@@ -24,7 +24,10 @@ namespace scenes
 namespace b2s
 {
 
-inline int ground(Scene2D &s, Vec2 p1, Vec2 p2, float mu = 0.6f) { return s.addSegment(p1, p2, mu); }
+inline int ground(Scene2D &s, Vec2 p1, Vec2 p2, float mu = 0.6f)
+{
+    return s.addSegment(p1, p2, mu);
+}
 
 // Box2D's default ground: a static box of half extents (hx, hy) at p.
 inline int groundBox(Scene2D &s, Vec2 p, float hx, float hy, float mu = 0.6f)
@@ -54,7 +57,7 @@ inline int revolute(Scene2D &s, int a, int b, Vec2 pt, float frictionTorque = 0.
 // speed is the motor speed (rad/s, negative = forward, +x), torque the motor limit.
 inline int car(Scene2D &s, Vec2 pos, float scale, float hertz, float damping, float torque, float speed)
 {
-    Vec2 v[6] = {Vec2(-1.5f, -0.5f), Vec2(1.5f, -0.5f), Vec2(1.5f, 0.0f),
+    Vec2 v[6] = {Vec2(-1.5f, -0.5f), Vec2(1.5f, -0.5f),  Vec2(1.5f, 0.0f),
                  Vec2(0.0f, 0.9f),   Vec2(-1.15f, 0.9f), Vec2(-1.5f, 0.2f)};
     for (Vec2 &p : v)
         p = p * (0.85f * scale);
@@ -354,7 +357,8 @@ inline void b2ScissorLift(Scene2D &s)
     int base1 = -1, base2 = -1; // bodies the next level's left and right pins attach to
     int linkId1 = -1;
     float y = 0.5f, topEnd = 0.0f;
-    auto pin = [&](Scene2D::JointType2D type, int a, int b, Vec2 pt, bool collide) {
+    auto pin = [&](Scene2D::JointType2D type, int a, int b, Vec2 pt, bool collide)
+    {
         Scene2D::JointDef2D d = s.makeJointDef(type, a, b, pt, Vec2(1.0f, 0.0f));
         d.collideConnected = collide;
         s.addJoint(d);
@@ -500,8 +504,7 @@ inline void b2RollingResistance(Scene2D &s)
     for (int i = 0; i < 20; i++)
     {
         b2s::ground(s, Vec2(-40.0f, 2.0f * (float)i), Vec2(40.0f, 2.0f * (float)i), 0.6f);
-        const int id =
-            s.addCircle(Vec2(-39.5f, 2.0f * (float)i + 0.75f), 0.5f, 1.0f, 0.6f, Vec2(5.0f, 0.0f), -10.0f);
+        const int id = s.addCircle(Vec2(-39.5f, 2.0f * (float)i + 0.75f), 0.5f, 1.0f, 0.6f, Vec2(5.0f, 0.0f), -10.0f);
         ShapeDef2D sd;
         sd.friction = 0.6f;
         sd.rollingResistance = 0.02f * (float)i;
@@ -696,8 +699,8 @@ inline void b2Confined(Scene2D &s)
     for (int c = 0; c < grid; c++)
         for (int r = 0; r < grid; r++)
         {
-            const int id = s.addCircle(Vec2(-8.75f + (float)c * 18.0f / (float)grid, 1.5f + (float)r * 18.0f / (float)grid),
-                                       0.5f, 1.0f, 0.6f);
+            const int id = s.addCircle(
+                Vec2(-8.75f + (float)c * 18.0f / (float)grid, 1.5f + (float)r * 18.0f / (float)grid), 0.5f, 1.0f, 0.6f);
             s.setBodyDef(id, bd);
         }
     s.cameraCenter = Vec2(0.0f, 10.0f);
@@ -714,9 +717,8 @@ inline void b2Cliff(Scene2D &s)
     s.addBox(Vec2(0.0f, 4.0f), 0.0f, Vec2(6.0f, 1.0f), 0.0f, 0.6f);
     s.addCapsule(Vec2(8.5f, 4.0f), Vec2(13.5f, 4.0f), 0.5f, 0.0f, 0.6f);
     const Vec2 sq[4] = {Vec2(-0.5f, -0.5f), Vec2(0.5f, -0.5f), Vec2(0.5f, 0.5f), Vec2(-0.5f, 0.5f)};
-    auto capsule = [&](float x, float y, float v) {
-        s.addCapsule(Vec2(x - 0.25f, y), Vec2(x + 0.25f, y), 0.25f, 1.0f, 0.01f, Vec2(v, 0.0f));
-    };
+    auto capsule = [&](float x, float y, float v)
+    { s.addCapsule(Vec2(x - 0.25f, y), Vec2(x + 0.25f, y), 0.25f, 1.0f, 0.01f, Vec2(v, 0.0f)); };
     capsule(-9.0f, 4.25f, 2.0f);
     capsule(2.0f, 4.75f, 2.0f);
     capsule(13.0f, 4.75f, 2.0f);
@@ -830,7 +832,8 @@ inline void b2TheoJansen(Scene2D &s)
         s.addJoint(d);
     }
     const Vec2 wheelAnchor = pivot + Vec2(0.0f, -0.8f);
-    auto leg = [&](float sgn) {
+    auto leg = [&](float sgn)
+    {
         const Vec2 p1(5.4f * sgn, -6.1f), p2(7.2f * sgn, -1.2f), p3(4.3f * sgn, -1.9f);
         const Vec2 p4(3.1f * sgn, 0.8f), p5(6.0f * sgn, 1.5f), p6(2.5f * sgn, 3.7f);
         const Vec2 v1[3] = {p1, p2, p3};
@@ -882,7 +885,8 @@ inline void b2ContactEvent(Scene2D &s)
     s.isBullet[(size_t)player] = 1;
     s.setHitEvents(player, true);
     uint32_t seed = 0x2545F491u;
-    auto rnd = [&](float lo, float hi) {
+    auto rnd = [&](float lo, float hi)
+    {
         seed = seed * 1664525u + 1013904223u;
         return lo + (hi - lo) * ((float)(seed >> 8) * (1.0f / 16777216.0f));
     };
@@ -968,7 +972,8 @@ inline void b2TypicalGame(Scene2D &s)
         s.addSegment(Vec2(32.0f, h(32.0f)), Vec2(32.0f, 40.0f), 0.6f);
     }
     uint32_t seed = 12345u;
-    auto rnd = [&](float lo, float hi) {
+    auto rnd = [&](float lo, float hi)
+    {
         seed = seed * 1664525u + 1013904223u;
         return lo + (hi - lo) * ((float)(seed >> 8) * (1.0f / 16777216.0f));
     };
@@ -1020,8 +1025,8 @@ inline void b2TypicalGame(Scene2D &s)
         int prev = -1;
         for (int i = 0; i < 10; i++)
         {
-            const int id = s.addCapsule(Vec2(x0 + (float)i * 0.5f, y0), Vec2(x0 + (float)i * 0.5f + 0.5f, y0), 0.1f,
-                                        2.0f, 0.4f);
+            const int id =
+                s.addCapsule(Vec2(x0 + (float)i * 0.5f, y0), Vec2(x0 + (float)i * 0.5f + 0.5f, y0), 0.1f, 2.0f, 0.4f);
             b2s::revolute(s, prev, id, Vec2(x0 + (float)i * 0.5f, y0));
             prev = id;
         }

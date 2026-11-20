@@ -49,15 +49,15 @@ struct StepResult2D
     int capacityReruns = 0;
     int jpReruns = 0;
     int colorReruns = 0;
-    int submits = 0;        // vkQueueSubmit calls this step made (1 unless it reran)
-    int pairs = 0;          // broadphase pairs
-    int contacts = 0;       // contact points
-    int colors = 0;         // graph colours
-    int awake = 0;          // dynamic bodies solved this step
-    int removed = 0;        // bodies the guard removed this step
-    int brokenJoints = 0;   // joints that fractured this step
+    int submits = 0;         // vkQueueSubmit calls this step made (1 unless it reran)
+    int pairs = 0;           // broadphase pairs
+    int contacts = 0;        // contact points
+    int colors = 0;          // graph colours
+    int awake = 0;           // dynamic bodies solved this step
+    int removed = 0;         // bodies the guard removed this step
+    int brokenJoints = 0;    // joints that fractured this step
     int eventsTruncated = 0; // bit k set: event kind k overflowed its buffer this step (it grows for the next)
-    float stepMs = 0.0f;    // host wall clock
+    float stepMs = 0.0f;     // host wall clock
     const char *failResource = "";
 };
 
@@ -87,10 +87,10 @@ struct WorldStats2D
 {
     int bodies = 0;
     int statics = 0;
-    int dynamic = 0;        // dynamic bodies still in the simulation
+    int dynamic = 0; // dynamic bodies still in the simulation
     int awake = 0;
     int asleep = 0;
-    int removed = 0;        // dynamic bodies the guard has removed in total
+    int removed = 0; // dynamic bodies the guard has removed in total
     int joints = 0;
     int brokenJoints = 0;
     int pairCap = 0;
@@ -104,10 +104,10 @@ struct SpawnDesc2D
     int shape = SHAPE2D_BOX; // Shape2D
     Vec2 pos;
     float angle = 0.0f;
-    Vec2 size{1.0f, 1.0f};   // box: full extents; circle: size.x is the radius; capsule: full length and
-                             // width along local x (radius size.y / 2); polygon: size.x is the circumradius
-    int sides = 6;           // polygon: a regular polygon with 3..8 sides
-    float radius = 0.0f;     // polygon: rounding radius
+    Vec2 size{1.0f, 1.0f}; // box: full extents; circle: size.x is the radius; capsule: full length and
+                           // width along local x (radius size.y / 2); polygon: size.x is the circumradius
+    int sides = 6;         // polygon: a regular polygon with 3..8 sides
+    float radius = 0.0f;   // polygon: rounding radius
     float density = 1.0f;
     float friction = 0.5f;
     Vec2 vel;
@@ -121,10 +121,10 @@ int addSpawnDesc(Scene2D &s, const SpawnDesc2D &d);
 
 struct ContactDebug2D
 {
-    Vec2 p;        // world point
-    Vec2 n;        // normal, from B to A
-    float force;   // normal multiplier magnitude (N)
-    float sep;     // n . (xA - xB) at the stored anchors; negative = overlap (m)
+    Vec2 p;      // world point
+    Vec2 n;      // normal, from B to A
+    float force; // normal multiplier magnitude (N)
+    float sep;   // n . (xA - xB) at the stored anchors; negative = overlap (m)
     int bodyA, bodyB;
 };
 
@@ -268,9 +268,9 @@ public:
     struct MovedBody2D
     {
         int body;
-        bool awake;       // awake at the end of the step
-        bool fellAsleep;  // awake at its start, not at its end
-        Vec2 pos;         // centre of mass
+        bool awake;      // awake at the end of the step
+        bool fellAsleep; // awake at its start, not at its end
+        Vec2 pos;        // centre of mass
         float angle;
         Vec2 vel;
         float angVel;
@@ -352,17 +352,17 @@ public:
     // pick() returns the dynamic body under `p`, or -1.
     struct GrabOptions
     {
-        float radius = 0.0f;        // 0 = just the body under the cursor
-        bool followJoints = true;   // a jointed body brings what its joints reach, within the radius
-        float falloff = 2.0f;       // exponent of the strength falloff towards the rim
-        float minStrength = 0.05f;  // strength at the rim, as a fraction of the centre's
+        float radius = 0.0f;       // 0 = just the body under the cursor
+        bool followJoints = true;  // a jointed body brings what its joints reach, within the radius
+        float falloff = 2.0f;      // exponent of the strength falloff towards the rim
+        float minStrength = 0.05f; // strength at the rim, as a fraction of the centre's
     };
     // The strength weight of a body `dist` from the click, 1 at the cursor and `minStrength` at
     // the rim.
     static float grabWeight(float dist, const GrabOptions &opt);
     static constexpr int kGrabSlots = 256;
     int pick(Vec2 p) const;
-    bool grabBegin(Vec2 p);                        // just the body under the cursor
+    bool grabBegin(Vec2 p); // just the body under the cursor
     bool grabBegin(Vec2 p, const GrabOptions &opt);
     void grabMove(Vec2 p);
     void grabEnd();
@@ -515,7 +515,8 @@ private:
     avbdvk::Pipeline m_integrate, m_gravityX, m_velocity, m_guard, m_velocityGuard;
     avbdvk::Pipeline m_ccdFlagPl, m_ccdArgsPl, m_ccdPl;
     avbdvk::Pipeline m_gridClear, m_gridInsert, m_findPairs, m_oversizePairs, m_narrowphase;
-    avbdvk::Pipeline m_jointInit, m_integrateJoint, m_jointDual, m_colorArgs, m_primal, m_dual, m_dualAll, m_iterate, m_sortSmall, m_buildSmall;
+    avbdvk::Pipeline m_jointInit, m_integrateJoint, m_jointDual, m_colorArgs, m_primal, m_dual, m_dualAll, m_iterate,
+        m_sortSmall, m_buildSmall;
     avbdvk::Pipeline m_sleepPrep, m_sleepBlockPre, m_sleepMark, m_sleepNbrC, m_sleepNbrJ, m_sleepCommit;
     avbdvk::Pipeline m_eventBegin, m_eventEnd, m_eventHit, m_eventJoint, m_applyImpulses;
     avbdvk::Pipeline m_queryClear, m_queryInsert, m_queryRays, m_queryAabbs;
@@ -661,31 +662,32 @@ private:
     std::vector<uint8_t> m_upData;
     avbdvk::MappedBuffer m_upStage;
     bool m_deferUp = false;
-    bool m_liveBuilt = false;  // the device buffers exist (build() ran with bodies)
-    bool m_liveDirty = false;  // host scene edited, build() still to run
+    bool m_liveBuilt = false; // the device buffers exist (build() ran with bodies)
+    bool m_liveDirty = false; // host scene edited, build() still to run
     bool m_dirtyIgnore = false;
     RangeAlloc m_shapeAlloc, m_vertAlloc;
     std::vector<Retired> m_retired; // shape / vertex ranges freed this step window, released after the next commit
     size_t m_retiredMark = 0;       // how many of them the step in flight covers
     std::vector<int> m_freeBodies, m_freeJoints;
-    std::vector<uint8_t> m_jointDead;     // per authored joint: a freed slot
+    std::vector<uint8_t> m_jointDead; // per authored joint: a freed slot
     std::vector<int> m_dirtyJoints, m_dirtyBodiesNew;
     std::vector<Range> m_dirtyShapeR, m_dirtyVertR;
     bool m_listsDirty = false;
     bool m_keepLive = false; // build() called by liveFinish: keep the free lists and the retired ranges
 
     int m_bodyCount = 0, m_bodyCap = 0, m_dynCount = 0, m_statCount = 0;
-    int m_shapeCap = 0; // allocated shape slots (also the grid's link array)
+    int m_shapeCap = 0;                                  // allocated shape slots (also the grid's link array)
     int m_gridCount = 0, m_gridDyn = 0, m_overCount = 0; // broadphase lists of shapes (uploadLists)
-    int m_jointCount = 0; // authored
-    int m_jointSlots = 0; // grab slots + authored
-    int m_jointCap = 0;   // allocated joint slots
-    int m_csRes[3] = {0, 0, 0}; // what m_constraints.reserve last sized (bodies, pairs, forces); it reallocates every call
+    int m_jointCount = 0;                                // authored
+    int m_jointSlots = 0;                                // grab slots + authored
+    int m_jointCap = 0;                                  // allocated joint slots
+    int m_csRes[3] = {0, 0,
+                      0}; // what m_constraints.reserve last sized (bodies, pairs, forces); it reallocates every call
     int m_ignoreCount = 0;
     int m_tableSize = 1024;
     float m_cellSize = 1.0f;
     int m_pairCap = 0, m_contactCap = 0;
-    int m_prevPairs = 0;  // live pairs of the manifold set that is now "previous"
+    int m_prevPairs = 0; // live pairs of the manifold set that is now "previous"
     int m_lastColors = 0;
     int m_forcedPairCap = 0, m_forcedContactCap = 0;
     int m_removedTotal = 0, m_brokenTotal = 0, m_awakeNow = -1;
@@ -697,11 +699,11 @@ private:
     int m_grabBody = -1;
     GrabOptions m_grabOpt;
     Vec2 m_grabClick;
-    std::vector<int> m_grabGroup;     // body of each used slot
-    std::vector<Vec2> m_grabOffset;   // target of each slot's anchor, relative to the cursor
-    std::vector<Vec2> m_grabLocal;    // each slot's anchor on its body (body frame)
-    Vec2 m_grabCursor;                // where grabMove last put the cursor
-    std::vector<int> m_grabSorted;    // m_grabGroup sorted, for isGrabbed()
+    std::vector<int> m_grabGroup;   // body of each used slot
+    std::vector<Vec2> m_grabOffset; // target of each slot's anchor, relative to the cursor
+    std::vector<Vec2> m_grabLocal;  // each slot's anchor on its body (body frame)
+    Vec2 m_grabCursor;              // where grabMove last put the cursor
+    std::vector<int> m_grabSorted;  // m_grabGroup sorted, for isGrabbed()
 };
 
 } // namespace avbd2d

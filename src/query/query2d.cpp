@@ -12,8 +12,14 @@ namespace
 
 constexpr float kTouchTol = 1e-4f;
 
-Vec2 vmin(Vec2 a, Vec2 b) { return Vec2(std::min(a.x, b.x), std::min(a.y, b.y)); }
-Vec2 vmax(Vec2 a, Vec2 b) { return Vec2(std::max(a.x, b.x), std::max(a.y, b.y)); }
+Vec2 vmin(Vec2 a, Vec2 b)
+{
+    return Vec2(std::min(a.x, b.x), std::min(a.y, b.y));
+}
+Vec2 vmax(Vec2 a, Vec2 b)
+{
+    return Vec2(std::max(a.x, b.x), std::max(a.y, b.y));
+}
 Vec2 normalized(Vec2 a, Vec2 fallback)
 {
     const float l = length(a);
@@ -470,7 +476,10 @@ bool boxesOverlap(Vec2 alo, Vec2 ahi, Vec2 blo, Vec2 bhi)
     return alo.x <= bhi.x && blo.x <= ahi.x && alo.y <= bhi.y && blo.y <= ahi.y;
 }
 
-bool isSensor(const Scene2D &S, int s) { return (S.shFlags[(size_t)s] & SHAPE_FLAG_SENSOR) != 0; }
+bool isSensor(const Scene2D &S, int s)
+{
+    return (S.shFlags[(size_t)s] & SHAPE_FLAG_SENSOR) != 0;
+}
 
 } // namespace
 
@@ -555,10 +564,13 @@ int Query2D::build(std::vector<int> &ids, int begin, int end)
     }
     const bool axisX = (chi.x - clo.x) >= (chi.y - clo.y);
     const int mid = (begin + end) / 2;
-    std::nth_element(ids.begin() + begin, ids.begin() + mid, ids.begin() + end, [&](int a, int b) {
-        const Vec2 ca = (m_lo[(size_t)a] + m_hi[(size_t)a]) * 0.5f, cb = (m_lo[(size_t)b] + m_hi[(size_t)b]) * 0.5f;
-        return axisX ? ca.x < cb.x : ca.y < cb.y;
-    });
+    std::nth_element(ids.begin() + begin, ids.begin() + mid, ids.begin() + end,
+                     [&](int a, int b)
+                     {
+                         const Vec2 ca = (m_lo[(size_t)a] + m_hi[(size_t)a]) * 0.5f,
+                                    cb = (m_lo[(size_t)b] + m_hi[(size_t)b]) * 0.5f;
+                         return axisX ? ca.x < cb.x : ca.y < cb.y;
+                     });
     const int l = build(ids, begin, mid);
     const int r = build(ids, mid, end);
     node.left = l;
@@ -636,11 +648,13 @@ void Query2D::castRay(const QueryView2D &v, Vec2 origin, Vec2 translation, const
 bool Query2D::castRayClosest(const QueryView2D &v, Vec2 origin, Vec2 translation, RayHit2D &out)
 {
     bool found = false;
-    castRay(v, origin, translation, [&](const RayHit2D &h) {
-        out = h;
-        found = true;
-        return h.fraction;
-    });
+    castRay(v, origin, translation,
+            [&](const RayHit2D &h)
+            {
+                out = h;
+                found = true;
+                return h.fraction;
+            });
     return found;
 }
 
@@ -691,11 +705,13 @@ void Query2D::castShape(const QueryView2D &v, const Proxy2D &proxy, Vec2 transla
 bool Query2D::castShapeClosest(const QueryView2D &v, const Proxy2D &proxy, Vec2 translation, RayHit2D &out)
 {
     bool found = false;
-    castShape(v, proxy, translation, [&](const RayHit2D &h) {
-        out = h;
-        found = true;
-        return h.fraction;
-    });
+    castShape(v, proxy, translation,
+              [&](const RayHit2D &h)
+              {
+                  out = h;
+                  found = true;
+                  return h.fraction;
+              });
     return found;
 }
 
@@ -727,15 +743,17 @@ void Query2D::overlapShape(const QueryView2D &v, const Proxy2D &proxy, const Sha
 {
     Vec2 lo, hi;
     boundsOf(proxy, lo, hi);
-    overlapAABB(v, lo, hi, [&](int s) {
-        const int b = v.scene->shBody[(size_t)s];
-        WShape w;
-        if (!makeWorldShape(*v.scene, s, v.pos[b], v.ang[b], w))
-            return true;
-        if (proxyDistance(proxyOf(w), proxy).distance <= kTouchTol)
-            return fn(s);
-        return true;
-    });
+    overlapAABB(v, lo, hi,
+                [&](int s)
+                {
+                    const int b = v.scene->shBody[(size_t)s];
+                    WShape w;
+                    if (!makeWorldShape(*v.scene, s, v.pos[b], v.ang[b], w))
+                        return true;
+                    if (proxyDistance(proxyOf(w), proxy).distance <= kTouchTol)
+                        return fn(s);
+                    return true;
+                });
 }
 
 void Query2D::explosion(const QueryView2D &v, Vec2 pos, float radius, float falloff, float impulsePerLength,

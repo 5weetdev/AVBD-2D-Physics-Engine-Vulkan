@@ -26,11 +26,11 @@ enum : uint32_t
 struct Instance2D
 {
     float x, y, angle;
-    float hx, hy;     // box half extents; circle: radius in hx; capsule: (half core length, radius);
-                      // triangle: vertex 0 (local)
-    uint32_t rgba;    // R in the low byte
-    uint32_t shape;   // kInst* below
-    uint32_t flags;   // bit 0: highlighted; bits 8..10: triangle edges 01, 12, 20 are outlined
+    float hx, hy;   // box half extents; circle: radius in hx; capsule: (half core length, radius);
+                    // triangle: vertex 0 (local)
+    uint32_t rgba;  // R in the low byte
+    uint32_t shape; // kInst* below
+    uint32_t flags; // bit 0: highlighted; bits 8..10: triangle edges 01, 12, 20 are outlined
     float ex[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // triangle: vertices 1 and 2 (local)
 };
 static_assert(sizeof(Instance2D) == 48, "Instance2D is mirrored by the vertex input in renderer2d.cpp");

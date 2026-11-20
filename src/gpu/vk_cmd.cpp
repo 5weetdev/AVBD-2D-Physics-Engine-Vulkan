@@ -46,7 +46,10 @@ bool profWanted()
 }
 } // namespace
 
-void CommandList::setProfiling(bool on) { profOverride().store(on ? 1 : 0); }
+void CommandList::setProfiling(bool on)
+{
+    profOverride().store(on ? 1 : 0);
+}
 
 void CommandList::profileReset()
 {
@@ -85,9 +88,8 @@ void CommandList::profileDump(FILE *f, int steps)
     const double n = steps > 0 ? steps : 1;
     fprintf(f, "%-28s %10s %10s %10s %8s\n", "kernel", "ms/step", "calls/step", "mean us", "%");
     for (auto &e : v)
-        fprintf(f, "%-28s %10.4f %10.1f %10.2f %7.2f%%\n", e.name.c_str(), e.totalNs * 1e-6 / n,
-                (double)e.count / n, e.count ? e.totalNs * 1e-3 / (double)e.count : 0.0,
-                total > 0 ? 100.0 * e.totalNs / total : 0.0);
+        fprintf(f, "%-28s %10.4f %10.1f %10.2f %7.2f%%\n", e.name.c_str(), e.totalNs * 1e-6 / n, (double)e.count / n,
+                e.count ? e.totalNs * 1e-3 / (double)e.count : 0.0, total > 0 ? 100.0 * e.totalNs / total : 0.0);
     fprintf(f, "%-28s %10.4f   (profiled total per step; overflowed ops: %llu)\n", "TOTAL", total * 1e-6 / n,
             (unsigned long long)profileOverflow());
 }
@@ -209,7 +211,7 @@ void CommandList::begin()
 }
 
 void CommandList::dispatch(Pipeline &pipeline, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ,
-                            VkDeviceAddress argsAddr)
+                           VkDeviceAddress argsAddr)
 {
     m_ops.dispatches++;
     if (m_gate)
@@ -259,8 +261,8 @@ void CommandList::barrierIndirect()
     mb.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     mb.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
     mb.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mb.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT |
-                       VK_ACCESS_2_SHADER_WRITE_BIT;
+    mb.dstAccessMask =
+        VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
 
     VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dep.memoryBarrierCount = 1;
@@ -429,12 +431,10 @@ double CommandList::timestampDeltaNs(uint32_t startIndex, uint32_t endIndex) con
     if (!m_timestampsValid)
         return -1.0;
     uint64_t values[2] = {0, 0};
-    VkResult r0 = vkGetQueryPoolResults(m_dev->device(), m_queryPool, startIndex, 1,
-                                         sizeof(uint64_t), &values[0], sizeof(uint64_t),
-                                         VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
-    VkResult r1 = vkGetQueryPoolResults(m_dev->device(), m_queryPool, endIndex, 1,
-                                         sizeof(uint64_t), &values[1], sizeof(uint64_t),
-                                         VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+    VkResult r0 = vkGetQueryPoolResults(m_dev->device(), m_queryPool, startIndex, 1, sizeof(uint64_t), &values[0],
+                                        sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+    VkResult r1 = vkGetQueryPoolResults(m_dev->device(), m_queryPool, endIndex, 1, sizeof(uint64_t), &values[1],
+                                        sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
     if (r0 != VK_SUCCESS || r1 != VK_SUCCESS)
         return -1.0;
     return (double)(values[1] - values[0]) * m_dev->timestampPeriodNs();

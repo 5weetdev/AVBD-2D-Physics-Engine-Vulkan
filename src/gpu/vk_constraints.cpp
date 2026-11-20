@@ -46,14 +46,19 @@ void VkConstraints::init(Device &dev)
     ring.init(dev, 1 << 20);
     cmd.init(dev, 4);
 
-    rawKeys.init(dev); sortedKeys.init(dev);
-    rawIsA.init(dev); sortedIsA.init(dev);
-    rowStart.init(dev); rowEnd.init(dev);
+    rawKeys.init(dev);
+    sortedKeys.init(dev);
+    rawIsA.init(dev);
+    sortedIsA.init(dev);
+    rowStart.init(dev);
+    rowEnd.init(dev);
     counter.init(dev);
 
     color.init(dev);
-    colorKey.init(dev); colorKeySorted.init(dev);
-    bodyByColor.init(dev); bodyScratch.init(dev);
+    colorKey.init(dev);
+    colorKeySorted.init(dev);
+    bodyByColor.init(dev);
+    bodyScratch.init(dev);
     colorRanges.init(dev);
     remaining.init(dev);
     readout.init(dev, (VkDeviceSize)(1 + kMaxJpRounds + 2 * AVBD_MAX_COLORS_VK) * sizeof(int32_t),
@@ -70,14 +75,19 @@ void VkConstraints::destroy()
 
 void VkConstraints::release()
 {
-    rawKeys.destroy(); sortedKeys.destroy();
-    rawIsA.destroy(); sortedIsA.destroy();
-    rowStart.destroy(); rowEnd.destroy();
+    rawKeys.destroy();
+    sortedKeys.destroy();
+    rawIsA.destroy();
+    sortedIsA.destroy();
+    rowStart.destroy();
+    rowEnd.destroy();
     counter.destroy();
 
     color.destroy();
-    colorKey.destroy(); colorKeySorted.destroy();
-    bodyByColor.destroy(); bodyScratch.destroy();
+    colorKey.destroy();
+    colorKeySorted.destroy();
+    bodyByColor.destroy();
+    bodyScratch.destroy();
     colorRanges.destroy();
     remaining.destroy();
 }
@@ -88,7 +98,7 @@ void VkConstraints::reserve(int maxBodies_, int maxManifolds, int maxForces)
     maxEntries = (maxManifolds + maxForces) * 2;
     if (maxEntries < 1)
         maxEntries = 1; // Buffer::resize(0) is legal but pointless; keep it >=1 so a
-                         // capacity check (base + n > capacity) is always meaningful.
+                        // capacity check (base + n > capacity) is always meaningful.
 
     rawKeys.resize((VkDeviceSize)maxEntries * sizeof(uint64_t));
     sortedKeys.resize((VkDeviceSize)maxEntries * sizeof(uint64_t));
@@ -111,10 +121,8 @@ void VkConstraints::reserve(int maxBodies_, int maxManifolds, int maxForces)
 }
 
 void VkConstraints::build(ConstraintsPipelines &pl, PrimitivesPipelines &prim, RadixScratch &radix,
-                          const VkConstraintsBodyRefs &bodies,
-                          const VkConstraintsManifoldRefs &manifolds,
-                          const VkConstraintsJointRefs &joints,
-                          const VkConstraintsSpringRefs &springs,
+                          const VkConstraintsBodyRefs &bodies, const VkConstraintsManifoldRefs &manifolds,
+                          const VkConstraintsJointRefs &joints, const VkConstraintsSpringRefs &springs,
                           const Buffer &dynamicIdx, int dynamicCount, VkDeviceAddress dynamicCountAddr)
 {
     entries = 0;
@@ -129,8 +137,7 @@ void VkConstraints::build(ConstraintsPipelines &pl, PrimitivesPipelines &prim, R
 
     ring.reset();
     cmd.begin();
-    record(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx, dynamicCount,
-           dynamicCountAddr);
+    record(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx, dynamicCount, dynamicCountAddr);
     const int first = recordColoring(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx,
                                      dynamicCount, 0, jpBound(), dynamicCountAddr);
     cmd.submit();
@@ -158,13 +165,11 @@ void VkConstraints::build(ConstraintsPipelines &pl, PrimitivesPipelines &prim, R
     m_peakRounds = std::max((float)rounds, m_peakRounds * 0.98f);
 }
 
-void VkConstraints::record(CommandList &cmd, HostRingBuffer &ring, ConstraintsPipelines &pl,
-                           PrimitivesPipelines &prim, RadixScratch &radix,
-                           const VkConstraintsBodyRefs &bodies,
-                           const VkConstraintsManifoldRefs &manifolds,
-                           const VkConstraintsJointRefs &joints,
-                           const VkConstraintsSpringRefs &springs,
-                           const Buffer &dynamicIdx, int dynamicCount, VkDeviceAddress dynamicCountAddr)
+void VkConstraints::record(CommandList &cmd, HostRingBuffer &ring, ConstraintsPipelines &pl, PrimitivesPipelines &prim,
+                           RadixScratch &radix, const VkConstraintsBodyRefs &bodies,
+                           const VkConstraintsManifoldRefs &manifolds, const VkConstraintsJointRefs &joints,
+                           const VkConstraintsSpringRefs &springs, const Buffer &dynamicIdx, int dynamicCount,
+                           VkDeviceAddress dynamicCountAddr)
 {
     const uint32_t block = 256;
     m_recordedRounds = 0;
@@ -182,8 +187,7 @@ void VkConstraints::record(CommandList &cmd, HostRingBuffer &ring, ConstraintsPi
 
     // ---- Reset colors, then emit every CSR entry (manifolds, joints, springs) into
     // one shared counter -- same shape as Constraints::build's first block. ----
-    CsResetColorsArgsGpu rc{color.address(), dynamicIdx.address(), (uint32_t)dynamicCount, 0u,
-                           dynamicCountAddr};
+    CsResetColorsArgsGpu rc{color.address(), dynamicIdx.address(), (uint32_t)dynamicCount, 0u, dynamicCountAddr};
     VkDeviceAddress rcAddr = ring.write(&rc, sizeof(rc));
     cmd.dispatch(pl.resetColors, (dynamicCount + block - 1) / block, rcAddr);
 
@@ -248,8 +252,8 @@ void VkConstraints::record(CommandList &cmd, HostRingBuffer &ring, ConstraintsPi
                           0xFFFFFFFFu, counter.address());
         cmd.barrier();
 
-        CsRowsArgsGpu ra{sortedKeys.address(), (uint32_t)maxEntries, 0u, rowStart.address(), rowEnd.address(),
-                         counter.address()};
+        CsRowsArgsGpu ra{sortedKeys.address(), (uint32_t)maxEntries, 0u,
+                         rowStart.address(),   rowEnd.address(),     counter.address()};
         VkDeviceAddress raAddr = ring.write(&ra, sizeof(ra));
         cmd.dispatch(pl.rows, ((uint32_t)maxEntries + block - 1) / block, raAddr);
         cmd.barrier();
@@ -295,13 +299,10 @@ void VkConstraints::finishColoring(int recordedRounds)
 }
 
 int VkConstraints::recordColoring(CommandList &cmd, HostRingBuffer &ring, ConstraintsPipelines &pl,
-                                  PrimitivesPipelines &prim, RadixScratch &radix,
-                                  const VkConstraintsBodyRefs &bodies,
-                                  const VkConstraintsManifoldRefs &manifolds,
-                                  const VkConstraintsJointRefs &joints,
-                                  const VkConstraintsSpringRefs &springs,
-                                  const Buffer &dynamicIdx, int dynamicCount, int firstRound, int count,
-                                  VkDeviceAddress dynamicCountAddr)
+                                  PrimitivesPipelines &prim, RadixScratch &radix, const VkConstraintsBodyRefs &bodies,
+                                  const VkConstraintsManifoldRefs &manifolds, const VkConstraintsJointRefs &joints,
+                                  const VkConstraintsSpringRefs &springs, const Buffer &dynamicIdx, int dynamicCount,
+                                  int firstRound, int count, VkDeviceAddress dynamicCountAddr)
 {
     const uint32_t block = 256;
     m_recordedRounds = 0;
@@ -342,8 +343,8 @@ int VkConstraints::recordColoring(CommandList &cmd, HostRingBuffer &ring, Constr
     }
 
     // ---- Group dynamic bodies by color so each color is one contiguous dispatch. ----
-    CsColorKeysArgsGpu ck{color.address(), dynamicIdx.address(), (uint32_t)dynamicCount, 0u,
-                          colorKey.address(), bodyScratch.address(), dynamicCountAddr, m_midTag};
+    CsColorKeysArgsGpu ck{color.address(),    dynamicIdx.address(),  (uint32_t)dynamicCount, 0u,
+                          colorKey.address(), bodyScratch.address(), dynamicCountAddr,       m_midTag};
     VkDeviceAddress ckAddr = ring.write(&ck, sizeof(ck));
     cmd.dispatch(pl.colorKeys, (dynamicCount + block - 1) / block, ckAddr);
     cmd.barrier();
@@ -357,8 +358,8 @@ int VkConstraints::recordColoring(CommandList &cmd, HostRingBuffer &ring, Constr
         cmd.fill(colorRanges, 0u);
     VkDeviceAddress startAddr = colorRanges.address();
     VkDeviceAddress endAddr = colorRanges.address() + (VkDeviceAddress)(AVBD_MAX_COLORS_VK * sizeof(int32_t));
-    CsColorRowsArgsGpu cr{colorKeySorted.address(), (uint32_t)dynamicCount, 0u, startAddr, endAddr,
-                          dynamicCountAddr, m_midTag ? nearEndAddr() : 0};
+    CsColorRowsArgsGpu cr{colorKeySorted.address(), (uint32_t)dynamicCount,      0u, startAddr, endAddr,
+                          dynamicCountAddr,         m_midTag ? nearEndAddr() : 0};
     VkDeviceAddress crAddr = ring.write(&cr, sizeof(cr));
     cmd.dispatch(pl.colorRows, (dynamicCount + block - 1) / block, crAddr);
     cmd.barrier();
@@ -374,16 +375,14 @@ void VkConstraints::prepare(RadixScratch &radix, int dynamicBound)
 }
 
 int VkConstraints::recordBuild(CommandList &cmd, HostRingBuffer &ring, ConstraintsPipelines &pl,
-                               PrimitivesPipelines &prim, RadixScratch &radix,
-                               const VkConstraintsBodyRefs &bodies, const VkConstraintsManifoldRefs &manifolds,
-                               const VkConstraintsJointRefs &joints, const VkConstraintsSpringRefs &springs,
-                               const Buffer &dynamicIdx, int dynamicBound, VkDeviceAddress dynamicCountAddr,
-                               int jpRounds)
+                               PrimitivesPipelines &prim, RadixScratch &radix, const VkConstraintsBodyRefs &bodies,
+                               const VkConstraintsManifoldRefs &manifolds, const VkConstraintsJointRefs &joints,
+                               const VkConstraintsSpringRefs &springs, const Buffer &dynamicIdx, int dynamicBound,
+                               VkDeviceAddress dynamicCountAddr, int jpRounds)
 {
-    record(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx, dynamicBound,
-           dynamicCountAddr);
-    const int recorded = recordColoring(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs,
-                                        dynamicIdx, dynamicBound, 0, jpRounds, dynamicCountAddr);
+    record(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx, dynamicBound, dynamicCountAddr);
+    const int recorded = recordColoring(cmd, ring, pl, prim, radix, bodies, manifolds, joints, springs, dynamicIdx,
+                                        dynamicBound, 0, jpRounds, dynamicCountAddr);
     m_readoutRounds = recorded;
     cmd.barrier();
     // With no dynamic bodies record() returned early: the counter and ranges were still

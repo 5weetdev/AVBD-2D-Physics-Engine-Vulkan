@@ -16,16 +16,46 @@ struct Vec2
     Vec2(float x_, float y_) : x(x_), y(y_) {}
 };
 
-inline Vec2 operator+(Vec2 a, Vec2 b) { return Vec2(a.x + b.x, a.y + b.y); }
-inline Vec2 operator-(Vec2 a, Vec2 b) { return Vec2(a.x - b.x, a.y - b.y); }
-inline Vec2 operator-(Vec2 a) { return Vec2(-a.x, -a.y); }
-inline Vec2 operator*(Vec2 a, float s) { return Vec2(a.x * s, a.y * s); }
-inline Vec2 operator*(float s, Vec2 a) { return Vec2(a.x * s, a.y * s); }
-inline float dot(Vec2 a, Vec2 b) { return a.x * b.x + a.y * b.y; }
-inline float cross(Vec2 a, Vec2 b) { return a.x * b.y - a.y * b.x; }
-inline float lengthSq(Vec2 a) { return dot(a, a); }
-inline float length(Vec2 a) { return std::sqrt(dot(a, a)); }
-inline Vec2 perp(Vec2 a) { return Vec2(-a.y, a.x); }
+inline Vec2 operator+(Vec2 a, Vec2 b)
+{
+    return Vec2(a.x + b.x, a.y + b.y);
+}
+inline Vec2 operator-(Vec2 a, Vec2 b)
+{
+    return Vec2(a.x - b.x, a.y - b.y);
+}
+inline Vec2 operator-(Vec2 a)
+{
+    return Vec2(-a.x, -a.y);
+}
+inline Vec2 operator*(Vec2 a, float s)
+{
+    return Vec2(a.x * s, a.y * s);
+}
+inline Vec2 operator*(float s, Vec2 a)
+{
+    return Vec2(a.x * s, a.y * s);
+}
+inline float dot(Vec2 a, Vec2 b)
+{
+    return a.x * b.x + a.y * b.y;
+}
+inline float cross(Vec2 a, Vec2 b)
+{
+    return a.x * b.y - a.y * b.x;
+}
+inline float lengthSq(Vec2 a)
+{
+    return dot(a, a);
+}
+inline float length(Vec2 a)
+{
+    return std::sqrt(dot(a, a));
+}
+inline Vec2 perp(Vec2 a)
+{
+    return Vec2(-a.y, a.x);
+}
 // Rotation by `angle` radians (counter-clockwise).
 inline Vec2 rotate(float angle, Vec2 v)
 {
@@ -48,10 +78,10 @@ enum Shape2D : uint8_t
 // Per-shape event flags (Scene2D::shFlags; mirrored in types2d.slang).
 enum ShapeFlag2D : uint8_t
 {
-    SHAPE_FLAG_SENSOR = 1,          // detects overlaps, never collides
-    SHAPE_FLAG_CONTACT_EVENTS = 2,  // begin/end touch events (default on)
-    SHAPE_FLAG_HIT_EVENTS = 4,      // hit events above the world threshold (default off)
-    SHAPE_FLAG_SENSOR_EVENTS = 8,   // a sensor may report this shape as a visitor (default on)
+    SHAPE_FLAG_SENSOR = 1,         // detects overlaps, never collides
+    SHAPE_FLAG_CONTACT_EVENTS = 2, // begin/end touch events (default on)
+    SHAPE_FLAG_HIT_EVENTS = 4,     // hit events above the world threshold (default off)
+    SHAPE_FLAG_SENSOR_EVENTS = 8,  // a sensor may report this shape as a visitor (default on)
     SHAPE_FLAG_DEFAULT = SHAPE_FLAG_CONTACT_EVENTS | SHAPE_FLAG_SENSOR_EVENTS,
 };
 
@@ -65,13 +95,13 @@ struct SolverParams2D
     Vec2 gravity{0.0f, -10.0f}; // acceleration (m/s^2); the default points down -y
     int iterations = 8;
 
-    float alpha = 0.97f;     // Constraint error regularisation (Eq. 18)
+    float alpha = 0.97f;      // Constraint error regularisation (Eq. 18)
     float betaLin = 10000.0f; // Penalty ramp, linear rows
     float betaAng = 100.0f;   // Penalty ramp, angular rows
     float gamma = 0.99f;      // Dual / penalty warm start decay (Eq. 19)
 
-    bool autoKStart = true;     // New contacts start from the effective-mass penalty
-    float dualDamping = 0.1f;   // Damps the dual warm start of highly ramped contacts
+    bool autoKStart = true;   // New contacts start from the effective-mass penalty
+    float dualDamping = 0.1f; // Damps the dual warm start of highly ramped contacts
     float dualDampVel = 0.1f;
 
     bool killFallenEnabled = true; // Bodies below killY stop being simulated

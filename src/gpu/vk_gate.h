@@ -30,8 +30,19 @@ namespace avbdvk
 class DispatchGate
 {
 public:
-    void init(Device &dev) { m_dev = &dev; args.init(dev); }
-    void destroy() { args.destroy(); m_src = 0; m_host = nullptr; m_slots = 0; m_used = 0; }
+    void init(Device &dev)
+    {
+        m_dev = &dev;
+        args.init(dev);
+    }
+    void destroy()
+    {
+        args.destroy();
+        m_src = 0;
+        m_host = nullptr;
+        m_slots = 0;
+        m_used = 0;
+    }
     uint64_t bytesAllocated() const { return (uint64_t)args.size(); }
 
     // Grows the indirect-command buffer to `slots` * 12 bytes. Call BEFORE recording.

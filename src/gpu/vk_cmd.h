@@ -48,8 +48,7 @@ public:
     // Records a dispatch. `argsAddr` is the device address of the kernel's argument
     // struct, written earlier this frame via a HostRingBuffer or a device Buffer --
     // exactly the "one uint64 in push constants" design in the migration plan.
-    void dispatch(Pipeline &pipeline, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ,
-                  VkDeviceAddress argsAddr);
+    void dispatch(Pipeline &pipeline, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ, VkDeviceAddress argsAddr);
     void dispatch(Pipeline &pipeline, uint32_t groupsX, VkDeviceAddress argsAddr)
     {
         dispatch(pipeline, groupsX, 1, 1, argsAddr);
@@ -132,7 +131,10 @@ public:
     static void profileDump(FILE *f, int steps = 1);    // steps: divide totals for per-step means
 
     // Ops recorded since begin(): dispatches (direct + indirect), compute barriers, transfers.
-    struct OpCounts { uint32_t dispatches = 0, barriers = 0, transfers = 0; };
+    struct OpCounts
+    {
+        uint32_t dispatches = 0, barriers = 0, transfers = 0;
+    };
     OpCounts opCounts() const { return m_ops; }
 
     VkCommandBuffer handle() const { return m_cmd; }

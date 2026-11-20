@@ -97,7 +97,11 @@ public:
     // Host pointer to a device address this ring handed out.
     void *hostPtr(VkDeviceAddress addr) const { return (uint8_t *)m_mapped + (addr - m_address); }
 
-    void reset() { m_cursor = 0; m_wrapped = false; }
+    void reset()
+    {
+        m_cursor = 0;
+        m_wrapped = false;
+    }
     // True once the cursor has wrapped since the last reset(). A caller that records a
     // whole submission between resets must treat that as fatal: the wrap overwrote
     // argument structs the same submission still reads.
@@ -137,7 +141,11 @@ public:
     // back every frame (the pose buffer): host reads of BAR memory are uncached PCIe
     // reads, so it prefers HOST_CACHED | HOST_COHERENT system memory instead, and falls
     // back to plain HOST_COHERENT where no cached type exists.
-    enum class HostAccess { Write, Read };
+    enum class HostAccess
+    {
+        Write,
+        Read
+    };
 
     void init(Device &dev, VkDeviceSize bytes, VkBufferUsageFlags extraUsage = 0,
               HostAccess access = HostAccess::Write);

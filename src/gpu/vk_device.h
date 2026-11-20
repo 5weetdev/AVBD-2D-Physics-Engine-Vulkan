@@ -99,7 +99,11 @@ public:
     // whose subgroup ops are missing or whose native size is neither, unless the device can
     // pin the size to 32 (subgroup size control), in which case every compute pipeline is
     // created with required size 32. AVBD_VK_PIN_SUBGROUP=32 forces the pin (debug override).
-    enum class SubgroupPolicy { Ignore, Generic3264 };
+    enum class SubgroupPolicy
+    {
+        Ignore,
+        Generic3264
+    };
     void setSubgroupPolicy(SubgroupPolicy p) { m_subgroupPolicy = p; }
     // Required subgroup size to put on compute pipelines, 0 = leave to the driver.
     uint32_t pinnedSubgroupSize() const { return m_pinnedSubgroup; }

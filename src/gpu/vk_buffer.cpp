@@ -106,10 +106,8 @@ void Buffer::resize(VkDeviceSize bytes, VkBufferUsageFlags extraUsage)
         return;
     bytes = alignUp4(bytes);
 
-    VkBufferUsageFlags usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-                                VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                                VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | extraUsage;
+    VkBufferUsageFlags usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                               VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | extraUsage;
 
     VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bi.size = bytes;
@@ -127,8 +125,8 @@ void Buffer::resize(VkDeviceSize bytes, VkBufferUsageFlags extraUsage)
     VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     ai.pNext = &flagsInfo;
     ai.allocationSize = req.size;
-    ai.memoryTypeIndex = findMemoryType(m_dev->physicalDevice(), req.memoryTypeBits,
-                                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    ai.memoryTypeIndex =
+        findMemoryType(m_dev->physicalDevice(), req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     VK_CHECK(vkAllocateMemory(m_dev->device(), &ai, nullptr, &m_memory));
     Device::noteAlloc();
     VK_CHECK(vkBindBufferMemory(m_dev->device(), m_buffer, m_memory, 0));
@@ -227,7 +225,7 @@ void Buffer::upload(const void *src, VkDeviceSize bytes, VkDeviceSize dstOffset)
     VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     ai.allocationSize = req.size;
     ai.memoryTypeIndex = findMemoryType(m_dev->physicalDevice(), req.memoryTypeBits,
-                                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     VK_CHECK(vkAllocateMemory(m_dev->device(), &ai, nullptr, &stagingMem));
     Device::noteAlloc();
     VK_CHECK(vkBindBufferMemory(m_dev->device(), staging, stagingMem, 0));
@@ -265,7 +263,7 @@ void Buffer::readback(void *dst, VkDeviceSize bytes, VkDeviceSize srcOffset) con
     VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     ai.allocationSize = req.size;
     ai.memoryTypeIndex = findMemoryType(m_dev->physicalDevice(), req.memoryTypeBits,
-                                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     VK_CHECK(vkAllocateMemory(m_dev->device(), &ai, nullptr, &stagingMem));
     Device::noteAlloc();
     VK_CHECK(vkBindBufferMemory(m_dev->device(), staging, stagingMem, 0));
@@ -311,7 +309,7 @@ void HostRingBuffer::init(Device &dev, VkDeviceSize bytes)
     ai.pNext = &flagsInfo;
     ai.allocationSize = req.size;
     ai.memoryTypeIndex = findMemoryType(dev.physicalDevice(), req.memoryTypeBits,
-                                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     VK_CHECK(vkAllocateMemory(dev.device(), &ai, nullptr, &m_memory));
     Device::noteAlloc();
     VK_CHECK(vkBindBufferMemory(dev.device(), m_buffer, m_memory, 0));
@@ -383,8 +381,8 @@ void MappedBuffer::init(Device &dev, VkDeviceSize bytes, VkBufferUsageFlags extr
     m_dev = &dev;
     m_size = bytes;
 
-    VkBufferUsageFlags usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | extraUsage;
+    VkBufferUsageFlags usage =
+        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | extraUsage;
 
     VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bi.size = bytes;
@@ -420,7 +418,7 @@ void MappedBuffer::init(Device &dev, VkDeviceSize bytes, VkBufferUsageFlags extr
     {
         m_deviceLocal = false;
         typeIndex = findMemoryType(dev.physicalDevice(), req.memoryTypeBits,
-                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     }
 
     VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};

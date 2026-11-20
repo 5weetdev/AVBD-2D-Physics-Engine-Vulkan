@@ -22,8 +22,8 @@ struct World2Gpu
 {
     // Bodies.
     DevPtr pos, ang, initPos, initAng, inertPos, inertAng, vel, angVel, prevVel;
-    DevPtr moment, mass, awake, sleepTimer, blocked, restPos, restAng, cand, touchCount,
-        touchHash, snapCount, snapHash, wakeReq, bProps, dyn, stat;
+    DevPtr moment, mass, awake, sleepTimer, blocked, restPos, restAng, cand, touchCount, touchHash, snapCount, snapHash,
+        wakeReq, bProps, dyn, stat;
     // Broadphase.
     DevPtr gridHead, gridNext, pairsRaw, pairsSorted, ignore, counters;
     // Manifolds.
@@ -33,7 +33,8 @@ struct World2Gpu
     // Joints.
     DevPtr jA, jB, jRA, jRB, jC0, jPen, jLam, jAxis, jFrameA, jRest, jArm, jFrac, jForce, jBroken;
     // Shape table and broadphase lists.
-    DevPtr sBody, sType, sOff, sAng, sRad, sHalf, sVR, sFric, sFlags, verts, norms, grid, over, sCat, sMask, sGroup, sMat;
+    DevPtr sBody, sType, sOff, sAng, sRad, sHalf, sVR, sFric, sFlags, verts, norms, grid, over, sCat, sMask, sGroup,
+        sMat;
     // Events.
     DevPtr ev, jBrokenPrev, impulses;
     // Continuous collision.

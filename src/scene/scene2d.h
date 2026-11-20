@@ -67,7 +67,7 @@ struct Scene2D
     // device; type tells them apart. Locks drop that degree of freedom from the solve.
     std::vector<uint8_t> bodyType, lockX, lockY, lockRot;
     std::vector<float> gravityScale, linearDamping, angularDamping;
-    std::vector<uint32_t> color; // 0 = let the renderer pick
+    std::vector<uint32_t> color;             // 0 = let the renderer pick
     std::vector<int> shapeFirst, shapeCount; // the body's shapes are [shapeFirst, shapeFirst + shapeCount)
     // Continuous collision (SolverParams2D::enableContinuous): a bullet is also swept against the
     // non-bullet dynamic bodies, not just the static geometry.
@@ -134,10 +134,7 @@ struct Scene2D
     void setContactEvents(int body, bool on) { setShapeFlag(body, SHAPE_FLAG_CONTACT_EVENTS, on); }
     void setSensorEvents(int body, bool on) { setShapeFlag(body, SHAPE_FLAG_SENSOR_EVENTS, on); }
 
-    void clear()
-    {
-        *this = Scene2D();
-    }
+    void clear() { *this = Scene2D(); }
 
     int addBox(Vec2 p, float angle, Vec2 size, float density, float mu = 0.5f, Vec2 v = Vec2(), float w = 0.0f,
                uint32_t rgba = 0)
@@ -151,8 +148,8 @@ struct Scene2D
                   uint32_t rgba = 0)
     {
         const float m = density > 0.0f ? density * kPi * radius * radius : 0.0f;
-        const int id = addBody(p, 0.0f, Vec2(radius, radius), SHAPE2D_CIRCLE, m, 0.5f * m * radius * radius, mu, v, w,
-                               rgba);
+        const int id =
+            addBody(p, 0.0f, Vec2(radius, radius), SHAPE2D_CIRCLE, m, 0.5f * m * radius * radius, mu, v, w, rgba);
         shRad[(size_t)shapeFirst[(size_t)id]] = radius;
         return id;
     }
@@ -222,7 +219,8 @@ struct Scene2D
         if (count < (loop ? 3 : 2))
             return -1;
         const int n = loop ? count : count - 1;
-        auto P = [&](int i) {
+        auto P = [&](int i)
+        {
             if (loop)
                 return points[((i % count) + count) % count];
             if (i < 0)
@@ -259,8 +257,8 @@ struct Scene2D
         PolyProps P;
         if (!polyProps(points, count, r, density, P))
             return -1;
-        const int id = addBody(p + rotate(angle, P.centroid), angle, P.half, SHAPE2D_POLYGON, P.mass, P.inertia, mu, v,
-                               w, rgba);
+        const int id =
+            addBody(p + rotate(angle, P.centroid), angle, P.half, SHAPE2D_POLYGON, P.mass, P.inertia, mu, v, w, rgba);
         setShape(id, P.v, P.nr, P.n, r);
         return id;
     }
@@ -595,10 +593,7 @@ struct Scene2D
         d.maxLength = maxLength;
         return addJoint(d);
     }
-    int addFilterJoint(int a, int b)
-    {
-        return addJoint(makeJointDef(JointType2D::Filter, a, b, pos[(size_t)b]));
-    }
+    int addFilterJoint(int a, int b) { return addJoint(makeJointDef(JointType2D::Filter, a, b, pos[(size_t)b])); }
 
     // Applies a body definition's type, dynamics and locks to body `id` (the pose and velocity are
     // taken as they are). A static or kinematic body loses its mass; a static one its velocity.
@@ -727,8 +722,8 @@ struct Scene2D
     {
         const Vec2 e = p2 - p1;
         const float h = 0.5f * length(e);
-        Pending q = pendingShape(SHAPE2D_SEGMENT, (p1 + p2) * 0.5f, std::atan2(e.y, e.x), Vec2(h, 0.0f), 0.0f,
-                                 d.friction);
+        Pending q =
+            pendingShape(SHAPE2D_SEGMENT, (p1 + p2) * 0.5f, std::atan2(e.y, e.x), Vec2(h, 0.0f), 0.0f, d.friction);
         q.n = 2;
         q.v[0] = Vec2(-h, 0.0f);
         q.v[1] = Vec2(h, 0.0f);
@@ -746,8 +741,8 @@ struct Scene2D
         const Vec2 e = p2 - p1;
         const float len = length(e);
         const Vec2 nr = len > 0.0f ? Vec2(e.y / len, -e.x / len) : Vec2(0.0f, 1.0f);
-        Pending q = pendingShape(SHAPE2D_CHAIN, c, 0.0f, Vec2(std::fabs(e.x) * 0.5f, std::fabs(e.y) * 0.5f), 0.0f,
-                                 d.friction);
+        Pending q =
+            pendingShape(SHAPE2D_CHAIN, c, 0.0f, Vec2(std::fabs(e.x) * 0.5f, std::fabs(e.y) * 0.5f), 0.0f, d.friction);
         q.n = 4;
         q.v[0] = g1 - c;
         q.v[1] = p1 - c;

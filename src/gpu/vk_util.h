@@ -61,10 +61,10 @@ public:
 
 } // namespace avbdvk
 
-#define VK_CHECK(expr)                                                                   \
-    do                                                                                   \
-    {                                                                                    \
-        VkResult avbd_vk_res_ = (expr);                                                  \
-        if (avbd_vk_res_ != VK_SUCCESS)                                                  \
-            ::avbdvk::vkCheckFail(avbd_vk_res_, __FILE__, __LINE__, #expr);              \
+#define VK_CHECK(expr)                                                                                                 \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        VkResult avbd_vk_res_ = (expr);                                                                                \
+        if (avbd_vk_res_ != VK_SUCCESS)                                                                                \
+            ::avbdvk::vkCheckFail(avbd_vk_res_, __FILE__, __LINE__, #expr);                                            \
     } while (0)
