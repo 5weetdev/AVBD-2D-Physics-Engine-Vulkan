@@ -1,13 +1,12 @@
 # Limitations
 
-**What you get:** the known gaps in avbd2d v1.0.0 (ABI 3.0), with a workaround for each. Check these before you commit to the library.
+**What you get:** the known gaps in avbd2d v1.0.0 (ABI 3.6), with a workaround for each. Check these before you commit to the library.
 
 Capability values match `avbd2d_get_capabilities()`. Items marked "ignored" are accepted by the API and have no effect.
 
 | Gap | Effect | Workaround |
 | :--- | :--- | :--- |
 | **Restitution** has no effect (`restitution` is stored, `capabilities.restitution = 0`) | No bouncing balls, no bouncy pickups | Use zero restitution. For a bounce, read the contact begin event and set the post-impact velocity yourself with `avbd2d_body_set_linear_velocity` |
-| **Joint `dampingRatio` ignored** | Springs, suspensions and soft welds oscillate more than in Box2D | Lower `hertz`, or add damping with body `linearDamping` / `angularDamping` |
 | **Per-body `enableSleep` ignored** (sleeping is velocity-gated, not island-based) | A body cannot be kept awake on its own; a resting body can stay asleep | Set world `sleepFrames = 0` to turn sleep off for the whole world, or call `avbd2d_body_set_awake` / `avbd2d_wake_all` when your game needs bodies awake |
 | **Explosion `maskBits` ignored** | Explosions cannot be filtered by category | Query with `avbd2d_world_overlap_aabb` and a `categoryBits`/`maskBits` filter, then apply `avbd2d_body_apply_linear_impulse_to_center` to the bodies you want |
 | **No determinism** (a stated non-goal, `capabilities.determinism = 0`) | Results differ across GPUs and drivers; no bit-exact replay | Do not use lockstep or rollback netcode. Sync state snapshots from an authoritative host instead |

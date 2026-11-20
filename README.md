@@ -4,7 +4,7 @@
 > The API and behaviour may change.
 
 A 2D rigid-body physics solver that runs on the GPU (Vulkan compute), using Augmented Vertex
-Block Descent (AVBD). It has a C API shaped like Box2D v3. Version 1.0.0, C ABI 3.0.
+Block Descent (AVBD). It has a C API shaped like Box2D v3. Version 1.0.0, C ABI 3.6.
 
 Made for large worlds: 100,000 bodies step in about 4 ms (measured once on an RTX 4070 SUPER, see
 [when to use it](docs/when-to-use.md)). For a few hundred bodies, Box2D on the CPU is likely the better choice.
@@ -107,7 +107,6 @@ Implemented in the code. Only the demo scenes and `avbd2d_demo --smoke` exercise
 | Joint damping ratios are accepted and ignored | Springs and welds oscillate more than in Box2D | `capabilities.joint_damping_ratio = 1` |
 | No determinism | Not bit-exact across runs, drivers or hardware; no lockstep or rollback | `capabilities.determinism = 0` |
 | Per-body `enableSleep` is ignored; explosion `maskBits` is not applied | Sleep is velocity-gated; explosions are not filtered by category | `capabilities.per_body_sleep_disable`, header |
-| No render-target interop | `avbd2d_register_render_target` returns `AVBD2D_ERR_UNSUPPORTED` | header |
 | Fixed cost of about 0.5 ms per step | A few hundred bodies is faster on the CPU; large worlds are where the GPU pays off (100k bodies step in about 4 ms) | measured once, see [when to use it](docs/when-to-use.md) |
 | Tested on one machine | Other GPUs, drivers and operating systems are untested | - |
 | Vulkan 1.3 | Needs int64, buffer device address, 64-bit atomics, scalar layout, synchronization2 | `avbd2d.h`, build |

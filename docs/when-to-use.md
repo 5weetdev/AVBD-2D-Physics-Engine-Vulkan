@@ -11,7 +11,6 @@
 | Typical 2D game with a few hundred bodies | **No** | The fixed GPU step cost (about 0.5 ms) is more than Box2D needs on one CPU core |
 | Between a few hundred and about 10k bodies | **Measure first** | No measured break-even in v1; time both on your target machine |
 | Bouncing, restitution-driven gameplay | **No** | Restitution has no effect |
-| Joint-heavy rigs that need joint damping | **No** | `dampingRatio` is ignored |
 | Lockstep or rollback netcode | **No** | Not deterministic |
 | Large world on a GPU with Vulkan 1.3 | **Yes** | This is the tested niche |
 

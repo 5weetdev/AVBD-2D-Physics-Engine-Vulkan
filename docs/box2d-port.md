@@ -39,7 +39,6 @@ Most ports are a rename.
 | Feature | State |
 | :--- | :--- |
 | Restitution | Stored, no effect |
-| Joint `dampingRatio` | Accepted, ignored |
 | Per-body `enableSleep` | Accepted, ignored |
 | Explosion `maskBits` | Accepted, not applied |
 | Determinism | Not provided |

@@ -232,10 +232,4 @@ Avbd2dChainId chain;
 avbd2d_create_chain(ground, &cd, &chain);
 ```
 
-## Misc and render interop
-
-| Function | Purpose |
-|---|---|
-| `avbd2d_register_render_target` | Always `AVBD2D_ERR_UNSUPPORTED` in this build. |
-
 Math helpers `avbd2d_make_rot`, `avbd2d_rot_get_angle` and the Vulkan device struct `Avbd2dVulkanDevice` are listed under World.

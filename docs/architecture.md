@@ -11,7 +11,7 @@ capacity, async and shader code must keep.
 
 ```mermaid
 flowchart TB
-    game["Host program (C)"] --> abi["C ABI<br/>include/avbd2d/avbd2d.h<br/>src/api/avbd2d_c_api.cpp"]
+    game["Host program (C)"] --> abi["C ABI<br/>include/avbd2d/avbd2d.h<br/>src/api/avbd2d_api*.cpp"]
     demo["demo/ (SDL2 + ImGui)"] --> world
     abi --> world["VkWorld2D<br/>src/world/vk_world2d.{h,cpp}"]
     world --> scene["src/scene<br/>Scene2D authoring"]
@@ -30,14 +30,14 @@ includes the ABI. The shared Vulkan layer in `src/gpu` knows nothing about 2D bo
 
 | Path | What it holds |
 | :--- | :--- |
-| `include/avbd2d/avbd2d.h` | The public C ABI, version 3.0 (`AVBD2D_ABI_VERSION_MAJOR/MINOR`). Defs, ids, error codes, stats, capabilities. |
-| `src/api/avbd2d_c_api.cpp` | ABI implementation over `VkWorld2D`. Turns queued calls into step input, settles an in-flight step before reads, maps errors. |
-| `src/world/vk_world2d.{h,cpp}` | `VkWorld2D`: device buffers, pipelines, the step, reruns, the mutation queue, live create/destroy, read-backs. |
-| `src/world/world2d_args.h` | Host mirror of `src/shaders/types2d.slang` (`World2Gpu`, `DispatchArgs2Gpu`, `BuildArgs2Gpu`, ...). Change both together; `static_assert`s pin the sizes. |
+| `include/avbd2d/avbd2d.h` | The public C ABI, version 3.6 (`AVBD2D_ABI_VERSION_MAJOR/MINOR`). Defs, ids, error codes, stats, capabilities. |
+| `src/api/avbd2d_api*.cpp`, `avbd2d_world.{h,cpp}` | ABI implementation over `VkWorld2D`, split by topic (world, body, shape, joint, query, interact, bulk, debug). Turns queued calls into step input, settles an in-flight step before reads, maps errors. |
+| `src/world/vk_world2d*.{h,cpp}` | `VkWorld2D`: device buffers, pipelines, the step, reruns, the mutation queue, live create/destroy, read-backs. |
+| `src/world/vk_args2d.h` | Host mirror of `src/shaders/types2d.slang` (`World2Gpu`, `DispatchArgs2Gpu`, `BuildArgs2Gpu`, ...). Change both together; `static_assert`s pin the sizes. |
 | `src/core/maths2d.h`, `joint2d.h` | Vector maths, the `Shape2D` enum, joint types. |
 | `src/scene/scene2d.h` | `Scene2D`: authored bodies, shapes, joints, no-collide pairs. |
 | `demo/scenes2d.h`, `scenes2d_box2d.h` | The built-in scene catalogue (pyramids, piles, ragdolls, shapes, chains). |
-| `demo/scene_io2d.h` | The `.a2dcap` scene capture format (magic and version; a new `Scene2D` array must be added to `visitScene2D`). |
+| `demo/scene2d_io.h` | The `.a2dcap` scene capture format (magic and version; a new `Scene2D` array must be added to `visitScene2D`). |
 | `src/query/query2d.{h,cpp}` | Host-side ray, overlap and shape-cast queries. |
 | `src/shaders/*.slang` | 2D kernels: `integrate2d`, `broadphase2d`, `narrowphase2d`, `solver2d`, `sleep2d`, `events2d`, `ccd2d`, `constraints2d`, `query2d`. `collide2d`, `distance2d`, `maths2d`, `types2d` are shared modules imported by these. |
 | `src/gpu/*.{h,cpp}` | The shared Vulkan layer: `vk_device` (instance, device, features), `vk_buffer`, `vk_pipeline`, `vk_cmd` (command list and barriers), `vk_primitives` (scan, compact, radix sort), `vk_constraints` (CSR graph and Jones-Plassmann colouring), `vk_gate` (indirect dispatch gate). |
@@ -147,7 +147,7 @@ Kernels are written in Slang and compiled to SPIR-V at build time. Nothing is lo
   defines `<name>_spirv[]` and `<name>_spirv_words`. The `.cpp` files include these headers.
 - `slangc` writes no dependency file, so every SPIR-V in a directory depends on every `.slang` in
   that directory. Editing a shared module rebuilds all its importers.
-- The host structs in `world2d_args.h` must match `types2d.slang` field for field. Change both in one
+- The host structs in `vk_args2d.h` must match `types2d.slang` field for field. Change both in one
   edit; the `static_assert`s catch a size change but not a reordering.
 - Two parts of the Vulkan layer are tested with environment hooks: `AVBD_VK_VALIDATION=1` turns on the
   validation layer, and `AVBD_VK_PIN_SUBGROUP` forces a subgroup size.
@@ -155,8 +155,6 @@ Kernels are written in Slang and compiled to SPIR-V at build time. Nothing is lo
 ## Not in v1
 
 - Restitution: accepted and stored, no effect (`capabilities` reports it).
-- Joint `dampingRatio`: accepted and ignored.
 - Explosion `maskBits`: accepted, not applied.
-- Render-target interop: `avbd2d_register_render_target` returns `AVBD2D_ERR_UNSUPPORTED`.
 - Islands, LOD, shadows and ambient occlusion.
 
